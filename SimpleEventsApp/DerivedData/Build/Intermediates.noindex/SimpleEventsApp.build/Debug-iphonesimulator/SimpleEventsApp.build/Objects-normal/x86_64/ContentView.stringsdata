@@ -1,0 +1,16 @@
+{
+  "source": "/Users/divyammehta/Desktop/CP/events/SimpleEventsApp/SimpleEventsApp/ContentView.swift",
+  "tables": {
+    "Localizable": [
+      {
+        "comment": "",
+        "key": "Upcoming Events",
+        "location": {
+          "startingColumn": 30,
+          "startingLine": 25
+        }
+      }
+    ]
+  },
+  "version": 1
+}
