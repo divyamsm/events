@@ -31,7 +31,12 @@ struct Provider: TimelineProvider {
             return SimpleEventsEntry(date: Date(), eventIndex: 0, event: event)
         }
 
-        let fallbackEvent = Event(title: "No Events", date: .now, location: "Check back soon")
+        let fallbackEvent = Event(
+            title: "No Events",
+            date: .now,
+            location: "Check back soon",
+            imageURL: URL(string: "https://images.unsplash.com/photo-1498050108023-c5249f4df085?auto=format&fit=crop&w=1400&q=80")!
+        )
         return SimpleEventsEntry(date: Date(), eventIndex: 0, event: fallbackEvent)
     }
 }
@@ -46,23 +51,53 @@ struct SimpleEventsWidgetEntryView: View {
     }()
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text("Next Event")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            Text(entry.event.title)
-                .font(.headline)
-                .lineLimit(2)
-            Text(entry.event.location)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-            Spacer()
-            Text(dateFormatter.localizedString(for: entry.event.date, relativeTo: .now))
-                .font(.footnote)
-                .foregroundStyle(.tertiary)
+        ZStack(alignment: .bottomLeading) {
+            AsyncImage(url: entry.event.imageURL) { phase in
+                switch phase {
+                case .empty:
+                    ZStack {
+                        Color(.systemGray5)
+                        ProgressView()
+                            .progressViewStyle(.circular)
+                            .tint(.white.opacity(0.8))
+                    }
+                case .success(let image):
+                    image
+                        .resizable()
+                        .scaledToFill()
+                case .failure:
+                    ZStack {
+                        Color(.systemGray5)
+                        Image(systemName: "photo")
+                            .foregroundStyle(.white.opacity(0.8))
+                            .font(.title2)
+                    }
+                @unknown default:
+                    Color(.systemGray5)
+                }
+            }
+            .overlay(Color.black.opacity(0.45))
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Next Event")
+                    .font(.caption)
+                    .textCase(.uppercase)
+                    .foregroundStyle(.white.opacity(0.85))
+                Text(entry.event.title)
+                    .font(.headline)
+                    .lineLimit(2)
+                Text(entry.event.location)
+                    .font(.subheadline)
+                    .foregroundStyle(.white.opacity(0.85))
+                    .lineLimit(1)
+                Spacer()
+                Text(dateFormatter.localizedString(for: entry.event.date, relativeTo: .now))
+                    .font(.footnote)
+                    .foregroundStyle(.white.opacity(0.75))
+            }
+            .padding()
         }
-        .padding()
+        .foregroundStyle(.white)
         .widgetURL(URL(string: "simpleevents://event/\(entry.eventIndex)"))
     }
 }

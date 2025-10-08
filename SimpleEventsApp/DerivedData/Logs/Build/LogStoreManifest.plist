@@ -6,7 +6,7 @@
 	<integer>11</integer>
 	<key>logs</key>
 	<dict>
-		<key>3611989C-4958-47CC-AAE1-6BA11A2AB68A</key>
+		<key>5F398420-263F-4173-8887-1DAE40105685</key>
 		<dict>
 			<key>className</key>
 			<string>IDECommandLineBuildLog</string>
@@ -15,21 +15,21 @@
 			<key>domainType</key>
 			<string>Xcode.IDEActivityLogDomainType.BuildLog</string>
 			<key>fileName</key>
-			<string>3611989C-4958-47CC-AAE1-6BA11A2AB68A.xcactivitylog</string>
+			<string>5F398420-263F-4173-8887-1DAE40105685.xcactivitylog</string>
 			<key>hasPrimaryLog</key>
 			<true/>
 			<key>primaryObservable</key>
 			<dict>
 				<key>highLevelStatus</key>
-				<string>E</string>
+				<string>S</string>
 				<key>totalNumberOfAnalyzerIssues</key>
 				<integer>0</integer>
 				<key>totalNumberOfErrors</key>
-				<integer>2</integer>
+				<integer>0</integer>
 				<key>totalNumberOfTestFailures</key>
 				<integer>0</integer>
 				<key>totalNumberOfWarnings</key>
-				<integer>1</integer>
+				<integer>0</integer>
 			</dict>
 			<key>schemeIdentifier-containerName</key>
 			<string>SimpleEventsApp project</string>
@@ -40,13 +40,55 @@
 			<key>signature</key>
 			<string>Building project SimpleEventsApp with scheme SimpleEventsApp</string>
 			<key>timeStartedRecording</key>
-			<real>781592190.57740498</real>
+			<real>781593011.05946398</real>
 			<key>timeStoppedRecording</key>
-			<real>781592193.00852203</real>
+			<real>781593014.47823501</real>
 			<key>title</key>
 			<string>Building project SimpleEventsApp with scheme SimpleEventsApp</string>
 			<key>uniqueIdentifier</key>
-			<string>3611989C-4958-47CC-AAE1-6BA11A2AB68A</string>
+			<string>5F398420-263F-4173-8887-1DAE40105685</string>
+		</dict>
+		<key>B5958557-2C57-43DB-B092-BDB0D7660CA4</key>
+		<dict>
+			<key>className</key>
+			<string>IDECommandLineBuildLog</string>
+			<key>documentTypeString</key>
+			<string>&lt;nil&gt;</string>
+			<key>domainType</key>
+			<string>Xcode.IDEActivityLogDomainType.BuildLog</string>
+			<key>fileName</key>
+			<string>B5958557-2C57-43DB-B092-BDB0D7660CA4.xcactivitylog</string>
+			<key>hasPrimaryLog</key>
+			<true/>
+			<key>primaryObservable</key>
+			<dict>
+				<key>highLevelStatus</key>
+				<string>S</string>
+				<key>totalNumberOfAnalyzerIssues</key>
+				<integer>0</integer>
+				<key>totalNumberOfErrors</key>
+				<integer>0</integer>
+				<key>totalNumberOfTestFailures</key>
+				<integer>0</integer>
+				<key>totalNumberOfWarnings</key>
+				<integer>0</integer>
+			</dict>
+			<key>schemeIdentifier-containerName</key>
+			<string>SimpleEventsApp project</string>
+			<key>schemeIdentifier-schemeName</key>
+			<string>SimpleEventsApp</string>
+			<key>schemeIdentifier-sharedScheme</key>
+			<integer>1</integer>
+			<key>signature</key>
+			<string>Building project SimpleEventsApp with scheme SimpleEventsApp</string>
+			<key>timeStartedRecording</key>
+			<real>781593263.53885305</real>
+			<key>timeStoppedRecording</key>
+			<real>781593266.46427596</real>
+			<key>title</key>
+			<string>Building project SimpleEventsApp with scheme SimpleEventsApp</string>
+			<key>uniqueIdentifier</key>
+			<string>B5958557-2C57-43DB-B092-BDB0D7660CA4</string>
 		</dict>
 	</dict>
 </dict>
