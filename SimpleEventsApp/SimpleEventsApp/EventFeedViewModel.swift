@@ -5,6 +5,7 @@ import CoreLocation
 final class EventFeedViewModel: ObservableObject {
     struct FeedEvent: Identifiable, Hashable {
         enum BadgeRole {
+            case me
             case invitedMe
             case going
             case invitedByMe
@@ -19,6 +20,8 @@ final class EventFeedViewModel: ObservableObject {
         let event: Event
         let badges: [FriendBadge]
         let distance: CLLocationDistance?
+        let isAttending: Bool
+        let attendingCount: Int
 
         var id: UUID { event.id }
         var isInvite: Bool {
@@ -40,11 +43,14 @@ final class EventFeedViewModel: ObservableObject {
 
     private let backend: EventBackend
     private let session: UserSession
+    private let appState: AppState
     private var friendsCatalog: [Friend] = []
+    private var latestEvents: [Event] = []
 
-    init(backend: EventBackend, session: UserSession) {
+    init(backend: EventBackend, session: UserSession, appState: AppState) {
         self.backend = backend
         self.session = session
+        self.appState = appState
     }
 
     func loadFeed() async {
@@ -56,32 +62,18 @@ final class EventFeedViewModel: ObservableObject {
             let snapshot = try await backend.fetchFeed(for: session.user, near: session.currentLocation)
             friendsCatalog = snapshot.friends
 
-            let enriched = snapshot.events.map { event -> FeedEvent in
-                let attending = snapshot.friends.filter { event.attendingFriendIDs.contains($0.id) }
-                let invitedMe = snapshot.friends.filter { event.invitedByFriendIDs.contains($0.id) }
-                let invitedByMe = snapshot.friends.filter { event.sharedInviteFriendIDs.contains($0.id) }
-
-                let badges: [FeedEvent.FriendBadge] =
-                    invitedMe.map { FeedEvent.FriendBadge(id: $0.id, friend: $0, role: .invitedMe) } +
-                    attending.filter { friend in invitedMe.contains(where: { $0.id == friend.id }) == false }
-                        .map { FeedEvent.FriendBadge(id: $0.id, friend: $0, role: .going) } +
-                    invitedByMe.filter { friend in invitedMe.contains(where: { $0.id == friend.id }) == false }
-                        .map { FeedEvent.FriendBadge(id: $0.id, friend: $0, role: .invitedByMe) }
-
-                let distance = event.distance(from: session.currentLocation)
-
-                return FeedEvent(event: event, badges: badges, distance: distance)
-            }
-
-            feedEvents = enriched.sorted { lhs, rhs in
-                if lhs.isInvite != rhs.isInvite {
-                    return lhs.isInvite
+            latestEvents = snapshot.events.map { event in
+                var mutable = event
+                if appState.attendingEventIDs.contains(event.id),
+                   mutable.attendingFriendIDs.contains(session.user.id) == false {
+                    mutable.attendingFriendIDs.append(session.user.id)
+                } else if appState.attendingEventIDs.contains(event.id) == false {
+                    mutable.attendingFriendIDs.removeAll(where: { $0 == session.user.id })
                 }
-
-                let lhsDistance = lhs.distance ?? .greatestFiniteMagnitude
-                let rhsDistance = rhs.distance ?? .greatestFiniteMagnitude
-                return lhsDistance < rhsDistance
+                return mutable
             }
+
+            feedEvents = buildFeedEvents(from: latestEvents, friends: snapshot.friends)
         } catch {
             presentError = "Couldn't refresh events. Please try again."
         }
@@ -106,6 +98,71 @@ final class EventFeedViewModel: ObservableObject {
             await loadFeed()
         } catch {
             presentError = "Couldn't send invites. Please try again."
+        }
+    }
+
+    func toggleAttendance(for feedEvent: FeedEvent) {
+        let eventID = feedEvent.event.id
+        let isCurrentlyGoing = appState.attendingEventIDs.contains(eventID)
+
+        if isCurrentlyGoing {
+            appState.attendingEventIDs.remove(eventID)
+        } else {
+            appState.attendingEventIDs.insert(eventID)
+        }
+
+        if let index = latestEvents.firstIndex(where: { $0.id == eventID }) {
+            var event = latestEvents[index]
+            if isCurrentlyGoing {
+                event.attendingFriendIDs.removeAll(where: { $0 == session.user.id })
+            } else if event.attendingFriendIDs.contains(session.user.id) == false {
+                event.attendingFriendIDs.append(session.user.id)
+            }
+            latestEvents[index] = event
+        }
+
+        feedEvents = buildFeedEvents(from: latestEvents, friends: friendsCatalog)
+    }
+
+    private func buildFeedEvents(from events: [Event], friends: [Friend]) -> [FeedEvent] {
+        let enriched = events.map { event -> FeedEvent in
+            let attending = friends.filter { event.attendingFriendIDs.contains($0.id) }
+            let invitedMe = friends.filter { event.invitedByFriendIDs.contains($0.id) }
+            let invitedByMe = friends.filter { event.sharedInviteFriendIDs.contains($0.id) }
+
+            var badges: [FeedEvent.FriendBadge] =
+                invitedMe.map { FeedEvent.FriendBadge(id: $0.id, friend: $0, role: .invitedMe) } +
+                attending.filter { friend in invitedMe.contains(where: { $0.id == friend.id }) == false }
+                    .map { FeedEvent.FriendBadge(id: $0.id, friend: $0, role: .going) } +
+                invitedByMe.filter { friend in invitedMe.contains(where: { $0.id == friend.id }) == false }
+                    .map { FeedEvent.FriendBadge(id: $0.id, friend: $0, role: .invitedByMe) }
+
+            let isAttending = appState.attendingEventIDs.contains(event.id)
+            if isAttending {
+                let meBadge = FeedEvent.FriendBadge(id: session.user.id, friend: session.user, role: .me)
+                badges.insert(meBadge, at: 0)
+            }
+
+            let distance = event.distance(from: session.currentLocation)
+            let attendingCount = attending.count + (isAttending ? 1 : 0)
+
+            return FeedEvent(
+                event: event,
+                badges: badges,
+                distance: distance,
+                isAttending: isAttending,
+                attendingCount: attendingCount
+            )
+        }
+
+        return enriched.sorted { lhs, rhs in
+            if lhs.isInvite != rhs.isInvite {
+                return lhs.isInvite
+            }
+
+            let lhsDistance = lhs.distance ?? .greatestFiniteMagnitude
+            let rhsDistance = rhs.distance ?? .greatestFiniteMagnitude
+            return lhsDistance < rhsDistance
         }
     }
 }

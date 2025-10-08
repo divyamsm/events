@@ -7,7 +7,7 @@ struct SimpleEventsAppApp: App {
     var body: some Scene {
         WindowGroup {
             if appState.isOnboarded {
-                ContentView()
+                ContentView(appState: appState)
                     .environmentObject(appState)
             } else {
                 OnboardingFlowView()

@@ -327,42 +327,109 @@ private struct ProgressDots: View {
 }
 
 private struct SplashView: View {
-    @State private var animate = false
+    @State private var pulse = false
+    @State private var drawProgress: CGFloat = 0
+    @State private var showTagline = false
 
     var body: some View {
-        VStack(spacing: 24) {
+        VStack(spacing: 28) {
             ZStack {
-                Circle()
-                    .fill(
+                ForEach(0..<3) { index in
+                    Circle()
+                        .stroke(LinearGradient(
+                            colors: [.white.opacity(Double(0.35 - Double(index) * 0.1)), .clear],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        ), lineWidth: CGFloat(6 - index * 2))
+                        .frame(width: CGFloat(130 + index * 26), height: CGFloat(130 + index * 26))
+                        .scaleEffect(pulse ? 1.05 : 0.85)
+                        .opacity(pulse ? 0.4 : 0.15)
+                        .animation(
+                            .easeInOut(duration: 1.6)
+                                .repeatForever(autoreverses: true)
+                                .delay(Double(index) * 0.12),
+                            value: pulse
+                        )
+                }
+
+                TimelinePath(progress: drawProgress)
+                    .stroke(
                         LinearGradient(
                             colors: [.blue, .purple],
                             startPoint: .topLeading,
                             endPoint: .bottomTrailing
-                        )
+                        ),
+                        style: StrokeStyle(lineWidth: 12, lineCap: .round, lineJoin: .round)
                     )
-                    .frame(width: 96, height: 96)
-                    .scaleEffect(animate ? 1.05 : 0.85)
-                    .opacity(animate ? 1 : 0.7)
-                    .animation(.easeInOut(duration: 1.2).repeatForever(autoreverses: true), value: animate)
+                    .frame(width: 140, height: 140)
 
-                VStack(spacing: 4) {
-                    Image(systemName: "sparkles")
-                        .font(.title)
+                VStack(spacing: 6) {
+                    Image(systemName: "location.north.line.fill")
+                        .font(.title2.weight(.bold))
+                        .rotationEffect(.degrees(pulse ? 5 : -5))
                         .foregroundStyle(.white)
+                        .animation(.easeInOut(duration: 1.6).repeatForever(autoreverses: true), value: pulse)
+
                     Text("SimpleEvents")
-                        .font(.footnote.weight(.semibold))
-                        .foregroundStyle(.white.opacity(0.9))
+                        .font(.headline.weight(.semibold))
+                        .foregroundStyle(.white)
                 }
             }
 
-            Text("Events worth sharing.")
-                .font(.headline)
-                .foregroundStyle(.secondary)
+            VStack(spacing: 6) {
+                Text("Find the moment.")
+                    .font(.title3.bold())
+                    .foregroundStyle(.white)
+                    .opacity(showTagline ? 1 : 0)
+                    .offset(y: showTagline ? 0 : 8)
+                    .animation(.easeOut(duration: 0.6), value: showTagline)
+
+                Text("Curated events, shared instantly.")
+                    .font(.subheadline)
+                    .foregroundStyle(.white.opacity(0.6))
+                    .opacity(showTagline ? 1 : 0)
+                    .offset(y: showTagline ? 0 : 8)
+                    .animation(.easeOut(duration: 0.6).delay(0.08), value: showTagline)
+            }
         }
         .frame(maxWidth: .infinity)
         .onAppear {
-            animate = true
+            pulse = true
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                withAnimation(.easeInOut(duration: 1.2)) {
+                    drawProgress = 1
+                }
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
+                showTagline = true
+            }
         }
+    }
+}
+
+private struct TimelinePath: Shape {
+    var progress: CGFloat
+
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        let insetRect = rect.insetBy(dx: 16, dy: 16)
+        let top = CGPoint(x: insetRect.midX, y: insetRect.minY)
+        let right = CGPoint(x: insetRect.maxX, y: insetRect.midY)
+        let bottom = CGPoint(x: insetRect.midX, y: insetRect.maxY)
+        let left = CGPoint(x: insetRect.minX, y: insetRect.midY)
+
+        path.move(to: top)
+        path.addLine(to: right)
+        path.addLine(to: bottom)
+        path.addLine(to: left)
+        path.addLine(to: top)
+
+        return path.trimmedPath(from: 0, to: min(max(progress, 0), 1))
+    }
+
+    var animatableData: CGFloat {
+        get { progress }
+        set { progress = newValue }
     }
 }
 

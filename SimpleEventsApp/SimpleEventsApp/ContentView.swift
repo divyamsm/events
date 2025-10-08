@@ -2,16 +2,20 @@ import SwiftUI
 
 @MainActor
 struct ContentView: View {
+    let appState: AppState
     @StateObject private var viewModel: EventFeedViewModel
     @State private var alertContext: AlertContext?
 
     init(
+        appState: AppState,
         viewModel: EventFeedViewModel? = nil
     ) {
+        self.appState = appState
         _viewModel = StateObject(
             wrappedValue: viewModel ?? EventFeedViewModel(
                 backend: MockEventBackend(),
-                session: UserSession.sample
+                session: UserSession.sample,
+                appState: appState
             )
         )
     }
@@ -39,6 +43,8 @@ struct ContentView: View {
                                                 Spacer(minLength: 0)
                                                 EventCardView(feedEvent: feedEvent) {
                                                     viewModel.beginShare(for: feedEvent)
+                                                } rsvpAction: {
+                                                    viewModel.toggleAttendance(for: feedEvent)
                                                 }
                                                 .frame(height: cardHeight)
                                                 .padding(.horizontal, 24)
@@ -55,6 +61,9 @@ struct ContentView: View {
                                     containerSize: proxy.size,
                                     shareTapped: { feedEvent in
                                         viewModel.beginShare(for: feedEvent)
+                                    },
+                                    rsvpTapped: { feedEvent in
+                                        viewModel.toggleAttendance(for: feedEvent)
                                     }
                                 )
                             }
@@ -115,7 +124,9 @@ struct ContentView: View {
 }
 
 #Preview {
-    ContentView()
+    let appState = AppState()
+    appState.isOnboarded = true
+    return ContentView(appState: appState)
 }
 
 private struct AlertContext: Identifiable {
@@ -127,6 +138,7 @@ private struct AlertContext: Identifiable {
 private struct EventCardView: View {
     let feedEvent: EventFeedViewModel.FeedEvent
     let shareAction: () -> Void
+    let rsvpAction: () -> Void
 
     private let cornerRadius: CGFloat = 28
 
@@ -228,11 +240,14 @@ private struct EventCardView: View {
     }
 
     private var eventInfoBox: some View {
-        HStack(alignment: .bottom, spacing: 20) {
+        VStack(alignment: .leading, spacing: 16) {
             cardText
                 .frame(maxWidth: .infinity, alignment: .leading)
 
-            shareButton
+            HStack(spacing: 14) {
+                rsvpButton
+                shareButton
+            }
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 16)
@@ -263,7 +278,48 @@ private struct EventCardView: View {
                     .font(.footnote)
                     .foregroundStyle(.white.opacity(0.82))
             }
+
+            if feedEvent.isAttending {
+                let friendsCount = max(feedEvent.attendingCount - 1, 0)
+                Text(friendsCount > 0 ? "You + \(friendsCount) friend\(friendsCount == 1 ? "" : "s") are going" : "You're going")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.white.opacity(0.9))
+            } else if feedEvent.attendingCount > 0 {
+                Text("\(feedEvent.attendingCount) friend\(feedEvent.attendingCount == 1 ? "" : "s") going")
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(0.8))
+            }
         }
+    }
+
+    private var rsvpButton: some View {
+        Button(action: rsvpAction) {
+            HStack(spacing: 8) {
+                Image(systemName: feedEvent.isAttending ? "checkmark.seal.fill" : "hands.clap.fill")
+                Text(feedEvent.isAttending ? "Going" : "I'm going!")
+            }
+            .font(.callout.bold())
+            .padding(.vertical, 10)
+            .padding(.horizontal, 18)
+            .background(
+                Capsule()
+                    .fill(Color.white.opacity(feedEvent.isAttending ? 0.08 : 0.12))
+            )
+            .overlay(
+                Capsule()
+                    .stroke(
+                        LinearGradient(
+                            colors: feedEvent.isAttending ? [.green.opacity(0.8), .blue.opacity(0.6)] : [.white.opacity(0.35), .white.opacity(0.15)],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        ),
+                        lineWidth: feedEvent.isAttending ? 2 : 1
+                    )
+            )
+            .foregroundStyle(feedEvent.isAttending ? Color.white : Color.white)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(feedEvent.isAttending ? "Mark as not going" : "Mark as going")
     }
 
     private var shareButton: some View {
@@ -348,6 +404,8 @@ private struct FriendBadgeView: View {
 
     private var label: String {
         switch badge.role {
+        case .me:
+            return "You"
         case .invitedMe:
             return "Invited"
         case .going:
@@ -359,6 +417,8 @@ private struct FriendBadgeView: View {
 
     private var labelColor: Color {
         switch badge.role {
+        case .me:
+            return Color.cyan
         case .invitedMe:
             return Color.orange
         case .going:
@@ -374,12 +434,15 @@ private struct VerticalCarouselFallback: View {
     let feedEvents: [EventFeedViewModel.FeedEvent]
     let containerSize: CGSize
     let shareTapped: (EventFeedViewModel.FeedEvent) -> Void
+    let rsvpTapped: (EventFeedViewModel.FeedEvent) -> Void
 
     var body: some View {
         TabView {
             ForEach(feedEvents) { feedEvent in
                 EventCardView(feedEvent: feedEvent) {
                     shareTapped(feedEvent)
+                } rsvpAction: {
+                    rsvpTapped(feedEvent)
                 }
                 .frame(width: containerSize.width * 0.82, height: containerSize.height * 0.75)
                 .padding(.horizontal, 24)
