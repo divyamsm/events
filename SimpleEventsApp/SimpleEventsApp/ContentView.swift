@@ -1,36 +1,104 @@
 import SwiftUI
 
+@MainActor
 struct ContentView: View {
+    @StateObject private var viewModel: EventFeedViewModel
+    @State private var alertContext: AlertContext?
+
+    init(
+        viewModel: EventFeedViewModel? = nil
+    ) {
+        _viewModel = StateObject(
+            wrappedValue: viewModel ?? EventFeedViewModel(
+                backend: MockEventBackend(),
+                session: UserSession.sample
+            )
+        )
+    }
+
     var body: some View {
         NavigationStack {
-            GeometryReader { proxy in
-                let containerHeight = proxy.size.height
-                let events = EventRepository.sampleEvents
+            ZStack {
+                Color(.systemBackground)
+                    .ignoresSafeArea()
 
-                Group {
-                    if #available(iOS 17.0, *) {
-                        ScrollView(.vertical, showsIndicators: false) {
-                            LazyVStack(spacing: 0) {
-                                ForEach(events) { event in
-                                    VStack {
-                                        Spacer(minLength: 0)
-                                        EventCardView(event: event)
-                                            .frame(height: containerHeight * 0.75)
-                                            .padding(.horizontal, 24)
-                                        Spacer(minLength: 0)
+                if viewModel.feedEvents.isEmpty && viewModel.isLoading {
+                    ProgressView("Loading events...")
+                        .progressViewStyle(.circular)
+                } else {
+                    GeometryReader { proxy in
+                        let containerHeight = proxy.size.height
+                        let cardHeight = containerHeight * 0.78
+
+                        Group {
+                            if #available(iOS 17.0, *) {
+                                ScrollView(.vertical, showsIndicators: false) {
+                                    LazyVStack(spacing: 0) {
+                                        ForEach(viewModel.feedEvents) { feedEvent in
+                                            VStack {
+                                                Spacer(minLength: 0)
+                                                EventCardView(feedEvent: feedEvent) {
+                                                    viewModel.beginShare(for: feedEvent)
+                                                }
+                                                .frame(height: cardHeight)
+                                                .padding(.horizontal, 24)
+                                                Spacer(minLength: 0)
+                                            }
+                                            .frame(height: containerHeight)
+                                        }
                                     }
-                                    .frame(height: containerHeight)
                                 }
+                                .scrollTargetBehavior(.paging)
+                            } else {
+                                VerticalCarouselFallback(
+                                    feedEvents: viewModel.feedEvents,
+                                    containerSize: proxy.size,
+                                    shareTapped: { feedEvent in
+                                        viewModel.beginShare(for: feedEvent)
+                                    }
+                                )
                             }
                         }
-                        .scrollTargetBehavior(.paging)
-                    } else {
-                        VerticalCarouselFallback(events: events, containerSize: proxy.size)
                     }
                 }
             }
-            .ignoresSafeArea(edges: .bottom)
             .navigationTitle("Upcoming Events")
+        }
+        .task {
+            await viewModel.loadFeed()
+        }
+        .refreshable {
+            await viewModel.loadFeed()
+        }
+        .sheet(item: $viewModel.shareContext) { context in
+            ShareEventSheet(
+                context: context,
+                onSend: { recipients in
+                    Task {
+                        await viewModel.completeShare(for: context.feedEvent, to: recipients)
+                    }
+                },
+                onCancel: {
+                    viewModel.shareContext = nil
+                }
+            )
+        }
+        .alert(item: $alertContext) { context in
+            Alert(
+                title: Text(context.title),
+                message: Text(context.message),
+                dismissButton: .default(Text("OK"))
+            )
+        }
+        .onChange(of: viewModel.presentError) { newValue in
+            guard let message = newValue else { return }
+            alertContext = AlertContext(title: "Heads up", message: message)
+            viewModel.presentError = nil
+        }
+        .onChange(of: viewModel.shareConfirmation) { newValue in
+            guard let message = newValue else { return }
+            alertContext = AlertContext(title: "Shared", message: message)
+            viewModel.shareConfirmation = nil
         }
     }
 }
@@ -39,8 +107,15 @@ struct ContentView: View {
     ContentView()
 }
 
+private struct AlertContext: Identifiable {
+    let id = UUID()
+    let title: String
+    let message: String
+}
+
 private struct EventCardView: View {
-    let event: Event
+    let feedEvent: EventFeedViewModel.FeedEvent
+    let shareAction: () -> Void
 
     private let cornerRadius: CGFloat = 28
 
@@ -61,25 +136,33 @@ private struct EventCardView: View {
         GeometryReader { geo in
             let size = geo.size
             let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-            let gradient = LinearGradient(
-                gradient: Gradient(colors: [.black.opacity(0.78), .black.opacity(0.12)]),
-                startPoint: .bottom,
-                endPoint: .top
-            )
 
-            ZStack(alignment: .bottomLeading) {
-                AsyncImage(url: event.imageURL, transaction: Transaction(animation: .easeInOut)) { phase in
+            ZStack {
+                AsyncImage(url: feedEvent.event.imageURL, transaction: Transaction(animation: .easeInOut)) { phase in
                     image(for: phase, size: size)
                 }
                 .frame(width: size.width, height: size.height)
 
-                gradient
-                    .frame(width: size.width, height: size.height)
-                    .allowsHitTesting(false)
+                LinearGradient(
+                    gradient: Gradient(colors: [.black.opacity(0.85), .black.opacity(0.08)]),
+                    startPoint: .bottom,
+                    endPoint: .top
+                )
+                .frame(width: size.width, height: size.height)
+                .allowsHitTesting(false)
 
-                cardText
-                    .padding(24)
-                    .frame(width: size.width, alignment: .leading)
+                VStack(spacing: 0) {
+                    FriendAvatarRow(badges: feedEvent.badges)
+                        .padding(.top, 22)
+                        .padding(.horizontal, 24)
+
+                    Spacer(minLength: 16)
+
+                    eventInfoBox
+                        .padding(.horizontal, 24)
+                        .padding(.bottom, 22)
+                }
+                .frame(width: size.width, height: size.height)
             }
             .frame(width: size.width, height: size.height)
             .contentShape(shape)
@@ -100,8 +183,10 @@ private struct EventCardView: View {
         case .success(let image):
             image
                 .resizable()
+                .renderingMode(.original)
                 .aspectRatio(contentMode: .fill)
                 .frame(width: size.width, height: size.height)
+                .clipped()
         case .failure:
             placeholderIcon
                 .frame(width: size.width, height: size.height)
@@ -131,39 +216,184 @@ private struct EventCardView: View {
         }
     }
 
+    private var eventInfoBox: some View {
+        HStack(alignment: .bottom, spacing: 20) {
+            cardText
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            shareButton
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 16)
+        .background(
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .fill(.black.opacity(0.35))
+                .background(
+                    RoundedRectangle(cornerRadius: 24, style: .continuous)
+                        .fill(.ultraThinMaterial)
+                )
+        )
+    }
+
     private var cardText: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text(event.title)
-                .font(.title2.bold())
+        VStack(alignment: .leading, spacing: 10) {
+            Text(feedEvent.event.title)
+                .font(.title3.bold())
                 .fixedSize(horizontal: false, vertical: true)
 
-            Text(event.location)
+            Text(feedEvent.event.location)
                 .font(.headline)
                 .foregroundStyle(.white.opacity(0.9))
 
-            VStack(alignment: .leading, spacing: 4) {
-                Text(relativeFormatter.localizedString(for: event.date, relativeTo: .now))
+            VStack(alignment: .leading, spacing: 2) {
+                Text(relativeFormatter.localizedString(for: feedEvent.event.date, relativeTo: .now))
                     .font(.subheadline.weight(.semibold))
-                Text(absoluteFormatter.string(from: event.date))
+                Text(absoluteFormatter.string(from: feedEvent.event.date))
                     .font(.footnote)
-                    .foregroundStyle(.white.opacity(0.8))
+                    .foregroundStyle(.white.opacity(0.82))
+            }
+        }
+    }
+
+    private var shareButton: some View {
+        Button(action: shareAction) {
+            Image(systemName: "paperplane.fill")
+                .font(.system(size: 20, weight: .semibold))
+                .foregroundStyle(.white)
+                .frame(width: 52, height: 52)
+                .background(
+                    Circle()
+                        .fill(.ultraThinMaterial)
+                )
+                .overlay(
+                    Circle()
+                        .strokeBorder(Color.white.opacity(0.25), lineWidth: 1.2)
+                )
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Share \(feedEvent.event.title)")
+    }
+}
+
+private struct FriendAvatarRow: View {
+    let badges: [EventFeedViewModel.FeedEvent.FriendBadge]
+
+    var body: some View {
+        if badges.isEmpty {
+            Color.clear
+                .frame(height: 1)
+        } else {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 18) {
+                    ForEach(badges) { badge in
+                        FriendBadgeView(badge: badge)
+                    }
+                }
+                .padding(.vertical, 8)
             }
         }
     }
 }
 
+private struct FriendBadgeView: View {
+    let badge: EventFeedViewModel.FeedEvent.FriendBadge
+
+    var body: some View {
+        VStack(spacing: 6) {
+            avatar
+                .frame(width: 52, height: 52)
+                .overlay(circleBorder)
+
+            Text(label)
+                .font(.caption2.weight(.medium))
+                .textCase(.uppercase)
+                .foregroundStyle(labelColor.opacity(0.85))
+        }
+    }
+
+    private var avatar: some View {
+        Group {
+            if let url = badge.friend.avatarURL {
+                AsyncImage(url: url) { phase in
+                    switch phase {
+                    case .success(let image):
+                        image
+                            .resizable()
+                            .scaledToFill()
+                    case .empty:
+                        placeholder
+                    case .failure:
+                        placeholder
+                    @unknown default:
+                        placeholder
+                    }
+                }
+            } else {
+                ZStack {
+                    Circle()
+                        .fill(Color.white.opacity(0.1))
+                    Text(badge.friend.initials)
+                        .font(.headline)
+                        .foregroundStyle(.white)
+                }
+            }
+        }
+        .clipShape(Circle())
+    }
+
+    private var circleBorder: some View {
+        Circle()
+            .strokeBorder(labelColor, lineWidth: 3)
+    }
+
+    private var label: String {
+        switch badge.role {
+        case .invitedMe:
+            return "Invited"
+        case .going:
+            return "Going"
+        case .invitedByMe:
+            return "Sent"
+        }
+    }
+
+    private var labelColor: Color {
+        switch badge.role {
+        case .invitedMe:
+            return Color.orange
+        case .going:
+            return Color.green
+        case .invitedByMe:
+            return Color.blue
+        }
+    }
+
+    private var placeholder: some View {
+        ZStack {
+            Circle()
+                .fill(Color.white.opacity(0.08))
+            ProgressView()
+                .progressViewStyle(.circular)
+                .tint(.white.opacity(0.85))
+        }
+    }
+}
+
 private struct VerticalCarouselFallback: View {
-    let events: [Event]
+    let feedEvents: [EventFeedViewModel.FeedEvent]
     let containerSize: CGSize
+    let shareTapped: (EventFeedViewModel.FeedEvent) -> Void
 
     var body: some View {
         TabView {
-            ForEach(events) { event in
-                EventCardView(event: event)
-                    .frame(width: containerSize.width * 0.82, height: containerSize.height * 0.75)
-                    .padding(.horizontal, 24)
-                    .rotationEffect(.degrees(-90))
-                    .frame(width: containerSize.height, height: containerSize.width)
+            ForEach(feedEvents) { feedEvent in
+                EventCardView(feedEvent: feedEvent) {
+                    shareTapped(feedEvent)
+                }
+                .frame(width: containerSize.width * 0.82, height: containerSize.height * 0.75)
+                .padding(.horizontal, 24)
+                .rotationEffect(.degrees(-90))
+                .frame(width: containerSize.height, height: containerSize.width)
             }
         }
         .frame(width: containerSize.height, height: containerSize.width)
@@ -171,5 +401,215 @@ private struct VerticalCarouselFallback: View {
         .offset(x: containerSize.width)
         .frame(width: containerSize.width, height: containerSize.height)
         .tabViewStyle(.page(indexDisplayMode: .automatic))
+    }
+}
+
+private struct ShareEventSheet: View {
+    struct ShareTarget: Identifiable, Hashable {
+        enum Kind: Hashable {
+            case all
+            case friend(Friend)
+        }
+
+        let id: UUID
+        let kind: Kind
+
+        init(kind: Kind) {
+            switch kind {
+            case .all:
+                self.id = UUID(uuidString: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA") ?? UUID()
+            case .friend(let friend):
+                self.id = friend.id
+            }
+            self.kind = kind
+        }
+    }
+
+    let context: EventFeedViewModel.ShareContext
+    let onSend: ([Friend]) -> Void
+    let onCancel: () -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var selectedFriendIDs: Set<UUID> = []
+
+    private var targets: [ShareTarget] {
+        var items = [ShareTarget(kind: .all)]
+        items.append(contentsOf: context.availableFriends.map { ShareTarget(kind: .friend($0)) })
+        return items
+    }
+
+    private var isAllSelected: Bool {
+        let friendCount = context.availableFriends.count
+        guard friendCount > 0 else { return false }
+        return selectedFriendIDs.count == friendCount
+    }
+
+    var body: some View {
+        VStack(spacing: 24) {
+            Capsule()
+                .fill(Color.white.opacity(0.2))
+                .frame(width: 36, height: 5)
+                .padding(.top, 12)
+
+            HStack {
+                Button("Cancel") {
+                    onCancel()
+                    dismiss()
+                }
+                .foregroundStyle(.white.opacity(0.8))
+
+                Spacer()
+
+                Text("Send to...")
+                    .font(.title3.weight(.semibold))
+                    .foregroundStyle(.white)
+
+                Spacer()
+
+                Button("Send") {
+                    let recipients = context.availableFriends.filter { selectedFriendIDs.contains($0.id) }
+                    onSend(recipients)
+                    dismiss()
+                }
+                .bold()
+                .disabled(selectedFriendIDs.isEmpty)
+                .foregroundStyle(selectedFriendIDs.isEmpty ? .white.opacity(0.4) : .white)
+            }
+
+            VStack(alignment: .leading, spacing: 12) {
+                Text(context.feedEvent.event.title)
+                    .font(.headline)
+                    .foregroundStyle(.white.opacity(0.85))
+
+                if context.availableFriends.isEmpty {
+                    Text("Invite friends to start sharing events.")
+                        .font(.subheadline)
+                        .foregroundStyle(.white.opacity(0.65))
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            ScrollView {
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 80), spacing: 22)], spacing: 28) {
+                    ForEach(targets) { target in
+                        ShareTargetView(
+                            target: target,
+                            isSelected: isSelected(target)
+                        )
+                        .onTapGesture {
+                            toggleSelection(for: target)
+                        }
+                    }
+                }
+                .padding(.vertical, 8)
+            }
+        }
+        .padding(.horizontal, 24)
+        .padding(.bottom, 32)
+        .background(Color.black)
+        .presentationDetents([.fraction(0.55), .fraction(0.85)])
+        .onAppear {
+            selectedFriendIDs = []
+        }
+    }
+
+    private func isSelected(_ target: ShareTarget) -> Bool {
+        switch target.kind {
+        case .all:
+            return isAllSelected
+        case .friend(let friend):
+            return selectedFriendIDs.contains(friend.id)
+        }
+    }
+
+    private func toggleSelection(for target: ShareTarget) {
+        switch target.kind {
+        case .all:
+            if isAllSelected {
+                selectedFriendIDs.removeAll()
+            } else {
+                selectedFriendIDs = Set(context.availableFriends.map { $0.id })
+            }
+        case .friend(let friend):
+            if selectedFriendIDs.contains(friend.id) {
+                selectedFriendIDs.remove(friend.id)
+            } else {
+                selectedFriendIDs.insert(friend.id)
+            }
+        }
+    }
+}
+
+private struct ShareTargetView: View {
+    let target: ShareEventSheet.ShareTarget
+    let isSelected: Bool
+
+    var body: some View {
+        VStack(spacing: 10) {
+            ZStack {
+                Circle()
+                    .fill(isSelected ? Color.blue : Color.white.opacity(0.08))
+                    .frame(width: 68, height: 68)
+
+                content
+            }
+            .overlay(
+                Circle()
+                    .strokeBorder(isSelected ? Color.blue : Color.white.opacity(0.2), lineWidth: 2)
+            )
+
+            Text(label)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(isSelected ? .white : .white.opacity(0.8))
+        }
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        switch target.kind {
+        case .all:
+            Image(systemName: "person.3.fill")
+                .font(.system(size: 24, weight: .semibold))
+                .foregroundStyle(.white)
+        case .friend(let friend):
+            if let url = friend.avatarURL {
+                AsyncImage(url: url) { phase in
+                    switch phase {
+                    case .success(let image):
+                        image
+                            .resizable()
+                            .scaledToFill()
+                    case .empty:
+                        placeholder(friend)
+                    case .failure:
+                        placeholder(friend)
+                    @unknown default:
+                        placeholder(friend)
+                    }
+                }
+                .clipShape(Circle())
+            } else {
+                placeholder(friend)
+            }
+        }
+    }
+
+    private func placeholder(_ friend: Friend) -> some View {
+        ZStack {
+            Circle()
+                .fill(Color.white.opacity(0.12))
+            Text(friend.initials)
+                .font(.headline)
+                .foregroundStyle(.white)
+        }
+    }
+
+    private var label: String {
+        switch target.kind {
+        case .all:
+            return "All"
+        case .friend(let friend):
+            return friend.name.components(separatedBy: " ").first ?? friend.name
+        }
     }
 }
