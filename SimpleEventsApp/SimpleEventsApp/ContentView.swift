@@ -312,33 +312,22 @@ private struct FriendBadgeView: View {
     }
 
     private var avatar: some View {
-        Group {
-            if let url = badge.friend.avatarURL {
-                AsyncImage(url: url) { phase in
-                    switch phase {
-                    case .success(let image):
-                        image
-                            .resizable()
-                            .scaledToFill()
-                    case .empty:
-                        placeholder
-                    case .failure:
-                        placeholder
-                    @unknown default:
-                        placeholder
-                    }
-                }
-            } else {
-                ZStack {
-                    Circle()
-                        .fill(Color.white.opacity(0.1))
-                    Text(badge.friend.initials)
-                        .font(.headline)
-                        .foregroundStyle(.white)
-                }
-            }
-        }
-        .clipShape(Circle())
+        Circle()
+            .fill(
+                LinearGradient(
+                    colors: [
+                        labelColor.opacity(0.7),
+                        labelColor.opacity(0.45)
+                    ],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+            )
+            .overlay(
+                Text(badge.friend.initials)
+                    .font(.headline)
+                    .foregroundStyle(.white)
+            )
     }
 
     private var circleBorder: some View {
@@ -368,15 +357,6 @@ private struct FriendBadgeView: View {
         }
     }
 
-    private var placeholder: some View {
-        ZStack {
-            Circle()
-                .fill(Color.white.opacity(0.08))
-            ProgressView()
-                .progressViewStyle(.circular)
-                .tint(.white.opacity(0.85))
-        }
-    }
 }
 
 private struct VerticalCarouselFallback: View {

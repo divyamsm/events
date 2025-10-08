@@ -92,31 +92,31 @@ enum EventRepository {
     private static let friendDisha = Friend(
         id: UUID(uuidString: "F7B10C18-5A0F-4C16-ABF3-8DFD52E3E570")!,
         name: "Disha Kapoor",
-        avatarURL: URL(string: "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=400&q=80")
+        avatarURL: nil
     )
 
     private static let friendDivyam = Friend(
         id: UUID(uuidString: "02D4F551-8C88-4A58-9783-BA5B4B4AD9B6")!,
         name: "Divyam Mehta",
-        avatarURL: URL(string: "https://images.unsplash.com/photo-1524504388940-b1c1722653e1?auto=format&fit=crop&w=400&q=80")
+        avatarURL: nil
     )
 
     private static let friendShreyas = Friend(
         id: UUID(uuidString: "A9A796D4-5EE0-4FC9-9C03-FA041E3C0E9B")!,
         name: "Shreyas Iyer",
-        avatarURL: URL(string: "https://images.unsplash.com/photo-1529665253569-6d01c0eaf7b6?auto=format&fit=crop&w=400&q=80")
+        avatarURL: nil
     )
 
     private static let friendJordan = Friend(
         id: UUID(uuidString: "1E3FC403-346F-4ADC-8B3E-359BAAF343B5")!,
         name: "Jordan Lee",
-        avatarURL: URL(string: "https://images.unsplash.com/photo-1614287946122-7caa6d31bcb4?auto=format&fit=crop&w=400&q=80")
+        avatarURL: nil
     )
 
     private static let friendMaya = Friend(
         id: UUID(uuidString: "6B7C5D7E-1D90-4FD0-8B7E-75E0A9A9B415")!,
         name: "Maya Chen",
-        avatarURL: URL(string: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=400&q=80")
+        avatarURL: nil
     )
 
     static let friends: [Friend] = [
