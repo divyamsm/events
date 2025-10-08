@@ -2,6 +2,7 @@ import SwiftUI
 import UIKit
 
 struct ProfileView: View {
+    @EnvironmentObject private var appState: AppState
     private let profile = ProfileRepository.sampleProfile
     private let calendar = ProfileRepository.calendar
     private let focusMonth = ProfileRepository.focusMonth
@@ -40,7 +41,8 @@ struct ProfileView: View {
                 .presentationDetents([.medium, .large])
         }
         .sheet(isPresented: $showSettings) {
-            SettingsPlaceholderView()
+            SettingsView()
+                .environmentObject(appState)
                 .presentationDetents([.medium])
         }
     }
@@ -433,33 +435,36 @@ private struct FriendRow: View {
     }
 }
 
-private struct SettingsPlaceholderView: View {
+private struct SettingsView: View {
+    @EnvironmentObject private var appState: AppState
+    @Environment(\.dismiss) private var dismiss
+    @State private var selection: AppState.AppTheme = .system
+
     var body: some View {
         NavigationStack {
-            VStack(spacing: 16) {
-                Image(systemName: "slider.horizontal.3")
-                    .font(.largeTitle)
-                    .padding()
-                    .background(Color(.secondarySystemBackground), in: Circle())
-                Text("Settings coming soon")
-                    .font(.title2.bold())
-                Text("We’ll let you customize notifications, privacy, and more right here.")
-                    .font(.body)
-                    .multilineTextAlignment(.center)
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal)
+            Form {
+                Section(header: Text("Appearance")) {
+                    Picker("Theme", selection: $selection) {
+                        ForEach(AppState.AppTheme.allCases) { option in
+                            Text(option.title).tag(option)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                }
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(Color(.systemBackground))
+            .navigationTitle("Settings")
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("Done") {
-                        dismiss()
-                    }
+                    Button("Done") { dismiss() }
                 }
             }
         }
+        .onAppear {
+            selection = appState.selectedTheme
+        }
+        .onChange(of: selection) { newValue in
+            appState.selectedTheme = newValue
+        }
     }
-
-    @Environment(\.dismiss) private var dismiss
 }

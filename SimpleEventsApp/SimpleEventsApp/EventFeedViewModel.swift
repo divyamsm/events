@@ -22,6 +22,7 @@ final class EventFeedViewModel: ObservableObject {
         let distance: CLLocationDistance?
         let isAttending: Bool
         let attendingCount: Int
+        let isEditable: Bool
 
         var id: UUID { event.id }
         var isInvite: Bool {
@@ -44,8 +45,12 @@ final class EventFeedViewModel: ObservableObject {
     private let backend: EventBackend
     private let session: UserSession
     private let appState: AppState
-    private var friendsCatalog: [Friend] = []
+    private var friendsCatalog: [Friend] = EventRepository.friends
     private var latestEvents: [Event] = []
+
+    var friendOptions: [Friend] {
+        friendsCatalog.isEmpty ? EventRepository.friends : friendsCatalog
+    }
 
     init(backend: EventBackend, session: UserSession, appState: AppState) {
         self.backend = backend
@@ -62,7 +67,14 @@ final class EventFeedViewModel: ObservableObject {
             let snapshot = try await backend.fetchFeed(for: session.user, near: session.currentLocation)
             friendsCatalog = snapshot.friends
 
-            latestEvents = snapshot.events.map { event in
+            var combinedEvents = appState.createdEvents
+            for event in snapshot.events where combinedEvents.contains(where: { $0.id == event.id }) == false {
+                combinedEvents.append(event)
+            }
+
+            let createdIDs = Set(appState.createdEvents.map { $0.id })
+
+            latestEvents = combinedEvents.map { event in
                 var mutable = event
                 if appState.attendingEventIDs.contains(event.id),
                    mutable.attendingFriendIDs.contains(session.user.id) == false {
@@ -72,6 +84,8 @@ final class EventFeedViewModel: ObservableObject {
                 }
                 return mutable
             }
+
+            appState.createdEvents = latestEvents.filter { createdIDs.contains($0.id) }
 
             feedEvents = buildFeedEvents(from: latestEvents, friends: snapshot.friends)
         } catch {
@@ -87,6 +101,24 @@ final class EventFeedViewModel: ObservableObject {
 
     func completeShare(for feedEvent: FeedEvent, to recipients: [Friend]) async {
         guard recipients.isEmpty == false else {
+            shareContext = nil
+            return
+        }
+
+        if feedEvent.isEditable {
+            let ids = recipients.map { $0.id }
+            if let createdIndex = appState.createdEvents.firstIndex(where: { $0.id == feedEvent.event.id }) {
+                var event = appState.createdEvents[createdIndex]
+                event.sharedInviteFriendIDs = Array(Set(event.sharedInviteFriendIDs + ids))
+                appState.createdEvents[createdIndex] = event
+            }
+
+            if let latestIndex = latestEvents.firstIndex(where: { $0.id == feedEvent.event.id }) {
+                latestEvents[latestIndex].sharedInviteFriendIDs = Array(Set(latestEvents[latestIndex].sharedInviteFriendIDs + ids))
+            }
+
+            feedEvents = buildFeedEvents(from: latestEvents, friends: friendsCatalog)
+            shareConfirmation = "Sent to \(recipients.count) friend\(recipients.count == 1 ? "" : "s")"
             shareContext = nil
             return
         }
@@ -124,8 +156,98 @@ final class EventFeedViewModel: ObservableObject {
         feedEvents = buildFeedEvents(from: latestEvents, friends: friendsCatalog)
     }
 
+    func createEvent(
+        title: String,
+        location: String,
+        date: Date,
+        coordinate: CLLocationCoordinate2D?,
+        imageURL: URL,
+        privacy: Event.Privacy,
+        invitedFriendIDs: [UUID],
+        localImageData: Data?
+    ) {
+        let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedLocation = location.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        var event = Event(
+            title: trimmedTitle,
+            date: date,
+            location: trimmedLocation,
+            imageURL: imageURL,
+            coordinate: coordinate,
+            attendingFriendIDs: [session.user.id],
+            sharedInviteFriendIDs: invitedFriendIDs,
+            privacy: privacy,
+            localImageData: localImageData
+        )
+
+        appState.createdEvents.insert(event, at: 0)
+        appState.attendingEventIDs.insert(event.id)
+        latestEvents.insert(event, at: 0)
+        feedEvents = buildFeedEvents(from: latestEvents, friends: friendsCatalog)
+    }
+
+    func updateEvent(
+        id: UUID,
+        title: String,
+        location: String,
+        date: Date,
+        coordinate: CLLocationCoordinate2D?,
+        privacy: Event.Privacy,
+        invitedFriendIDs: [UUID],
+        localImageData: Data?
+    ) {
+        let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedLocation = location.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard appState.createdEvents.contains(where: { $0.id == id }) else { return }
+
+        if let createdIndex = appState.createdEvents.firstIndex(where: { $0.id == id }) {
+            appState.createdEvents[createdIndex].title = trimmedTitle
+            appState.createdEvents[createdIndex].location = trimmedLocation
+            appState.createdEvents[createdIndex].date = date
+            appState.createdEvents[createdIndex].coordinate = coordinate
+            appState.createdEvents[createdIndex].privacy = privacy
+            appState.createdEvents[createdIndex].sharedInviteFriendIDs = invitedFriendIDs
+            if let localImageData {
+                appState.createdEvents[createdIndex].localImageData = localImageData
+            }
+        }
+
+        if let latestIndex = latestEvents.firstIndex(where: { $0.id == id }) {
+            latestEvents[latestIndex].title = trimmedTitle
+            latestEvents[latestIndex].location = trimmedLocation
+            latestEvents[latestIndex].date = date
+            latestEvents[latestIndex].coordinate = coordinate
+            latestEvents[latestIndex].privacy = privacy
+            latestEvents[latestIndex].sharedInviteFriendIDs = invitedFriendIDs
+            if let localImageData {
+                latestEvents[latestIndex].localImageData = localImageData
+            }
+        }
+
+        feedEvents = buildFeedEvents(from: latestEvents, friends: friendsCatalog)
+    }
+
+    func deleteEvent(_ feedEvent: FeedEvent) {
+        let eventID = feedEvent.event.id
+
+        guard appState.createdEvents.contains(where: { $0.id == eventID }) else { return }
+
+        appState.createdEvents.removeAll { $0.id == eventID }
+        appState.attendingEventIDs.remove(eventID)
+        latestEvents.removeAll { $0.id == eventID }
+        feedEvents = buildFeedEvents(from: latestEvents, friends: friendsCatalog)
+    }
+
     private func buildFeedEvents(from events: [Event], friends: [Friend]) -> [FeedEvent] {
-        let enriched = events.map { event -> FeedEvent in
+        let createdIDs = Set(appState.createdEvents.map { $0.id })
+
+        let visibleEvents = events.filter { event in
+            event.privacy == .public || appState.createdEvents.contains(where: { $0.id == event.id }) || event.sharedInviteFriendIDs.contains(session.user.id)
+        }
+
+        let enriched = visibleEvents.map { event -> FeedEvent in
             let attending = friends.filter { event.attendingFriendIDs.contains($0.id) }
             let invitedMe = friends.filter { event.invitedByFriendIDs.contains($0.id) }
             let invitedByMe = friends.filter { event.sharedInviteFriendIDs.contains($0.id) }
@@ -151,11 +273,17 @@ final class EventFeedViewModel: ObservableObject {
                 badges: badges,
                 distance: distance,
                 isAttending: isAttending,
-                attendingCount: attendingCount
+                attendingCount: attendingCount,
+                isEditable: createdIDs.contains(event.id)
             )
         }
 
         return enriched.sorted { lhs, rhs in
+            let lhsCreated = createdIDs.contains(lhs.event.id)
+            let rhsCreated = createdIDs.contains(rhs.event.id)
+            if lhsCreated != rhsCreated {
+                return lhsCreated
+            }
             if lhs.isInvite != rhs.isInvite {
                 return lhs.isInvite
             }

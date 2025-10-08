@@ -32,6 +32,11 @@ struct UserSession {
 }
 
 struct Event: Identifiable, Hashable {
+    enum Privacy: String, Hashable {
+        case `public`
+        case `private`
+    }
+
     let id: UUID
     var title: String
     var date: Date
@@ -41,6 +46,8 @@ struct Event: Identifiable, Hashable {
     var attendingFriendIDs: [UUID]
     var invitedByFriendIDs: [UUID]
     var sharedInviteFriendIDs: [UUID]
+    var privacy: Privacy
+    var localImageData: Data?
 
     init(
         id: UUID = UUID(),
@@ -51,7 +58,9 @@ struct Event: Identifiable, Hashable {
         coordinate: CLLocationCoordinate2D? = nil,
         attendingFriendIDs: [UUID] = [],
         invitedByFriendIDs: [UUID] = [],
-        sharedInviteFriendIDs: [UUID] = []
+        sharedInviteFriendIDs: [UUID] = [],
+        privacy: Privacy = .public,
+        localImageData: Data? = nil
     ) {
         self.id = id
         self.title = title
@@ -62,6 +71,8 @@ struct Event: Identifiable, Hashable {
         self.attendingFriendIDs = attendingFriendIDs
         self.invitedByFriendIDs = invitedByFriendIDs
         self.sharedInviteFriendIDs = sharedInviteFriendIDs
+        self.privacy = privacy
+        self.localImageData = localImageData
     }
     static func == (lhs: Event, rhs: Event) -> Bool {
         lhs.id == rhs.id
@@ -156,7 +167,9 @@ enum EventRepository {
             imageURL: URL(string: "https://images.unsplash.com/photo-1545239351-1141bd82e8a6?auto=format&fit=crop&w=1400&q=80")!,
             coordinate: CLLocationCoordinate2D(latitude: 40.7128, longitude: -74.006),
             attendingFriendIDs: [friendJordan.id],
-            invitedByFriendIDs: []
+            invitedByFriendIDs: [],
+            sharedInviteFriendIDs: [currentUser.id],
+            privacy: .private
         )
     ]
 }
