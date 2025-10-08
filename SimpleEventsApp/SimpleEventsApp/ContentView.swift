@@ -63,6 +63,17 @@ struct ContentView: View {
                 }
             }
             .navigationTitle("Upcoming Events")
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    NavigationLink {
+                        ProfileView()
+                    } label: {
+                        Image(systemName: "person.crop.circle")
+                            .imageScale(.large)
+                    }
+                    .accessibilityLabel("Open profile")
+                }
+            }
         }
         .task {
             await viewModel.loadFeed()

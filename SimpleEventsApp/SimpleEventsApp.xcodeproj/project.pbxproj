@@ -14,6 +14,9 @@
 		FF1A4CE329A1A2D000000211 /* SimpleEventsWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF1A4CE329A1A2D000000111 /* SimpleEventsWidget.swift */; };
 		FF1A4CE329A1A2D000000212 /* SimpleEventsWidgetBundle.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF1A4CE329A1A2D000000112 /* SimpleEventsWidgetBundle.swift */; };
 		FF1A4CE329A1A2D000000213 /* EventData.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF1A4CE329A1A2D000000110 /* EventData.swift */; };
+		FF1A4CE429A1A2D000000222 /* ProfileData.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF1A4CE429A1A2D000000122 /* ProfileData.swift */; };
+		FF1A4CE429A1A2D000000223 /* ProfileData.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF1A4CE429A1A2D000000122 /* ProfileData.swift */; };
+		FF1A4CE429A1A2D000000224 /* ProfileView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF1A4CE429A1A2D000000123 /* ProfileView.swift */; };
 		FF1A4CE429A1A2D000000220 /* EventFeedViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF1A4CE429A1A2D000000121 /* EventFeedViewModel.swift */; };
 		FF1A4CE429A1A2D000000221 /* EventBackend.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF1A4CE429A1A2D000000120 /* EventBackend.swift */; };
 		FF1A4CE329A1A2D000000214 /* SimpleEventsWidget.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = FF1A4CE329A1A2D000000410 /* SimpleEventsWidget.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
@@ -57,6 +60,8 @@
 		FF1A4CE329A1A2D000000410 /* SimpleEventsWidget.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = SimpleEventsWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		FF1A4CE429A1A2D000000120 /* EventBackend.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EventBackend.swift; sourceTree = "<group>"; };
 		FF1A4CE429A1A2D000000121 /* EventFeedViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EventFeedViewModel.swift; sourceTree = "<group>"; };
+		FF1A4CE429A1A2D000000122 /* ProfileData.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileData.swift; sourceTree = "<group>"; };
+		FF1A4CE429A1A2D000000123 /* ProfileView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -101,6 +106,7 @@
 			children = (
 				FF1A4CE229A1A2D000000100 /* SimpleEventsAppApp.swift */,
 				FF1A4CE229A1A2D000000101 /* ContentView.swift */,
+				FF1A4CE429A1A2D000000123 /* ProfileView.swift */,
 				FF1A4CE429A1A2D000000121 /* EventFeedViewModel.swift */,
 				FF1A4CE229A1A2D000000102 /* Assets.xcassets */,
 				FF1A4CE229A1A2D000000103 /* Info.plist */,
@@ -122,6 +128,7 @@
 			children = (
 				FF1A4CE329A1A2D000000110 /* EventData.swift */,
 				FF1A4CE429A1A2D000000120 /* EventBackend.swift */,
+				FF1A4CE429A1A2D000000122 /* ProfileData.swift */,
 			);
 			path = Shared;
 			sourceTree = "<group>";
@@ -239,6 +246,8 @@
 				FF1A4CE229A1A2D000000200 /* SimpleEventsAppApp.swift in Sources */,
 				FF1A4CE429A1A2D000000220 /* EventFeedViewModel.swift in Sources */,
 				FF1A4CE429A1A2D000000221 /* EventBackend.swift in Sources */,
+				FF1A4CE429A1A2D000000222 /* ProfileData.swift in Sources */,
+				FF1A4CE429A1A2D000000224 /* ProfileView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -249,6 +258,7 @@
 				FF1A4CE329A1A2D000000211 /* SimpleEventsWidget.swift in Sources */,
 				FF1A4CE329A1A2D000000212 /* SimpleEventsWidgetBundle.swift in Sources */,
 				FF1A4CE329A1A2D000000213 /* EventData.swift in Sources */,
+				FF1A4CE429A1A2D000000223 /* ProfileData.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
