@@ -2,6 +2,18 @@ import Foundation
 #if canImport(WidgetKit)
 import WidgetKit
 #endif
+public struct WidgetFriendSummary: Codable, Identifiable, Hashable {
+    public let id: UUID
+    public let name: String
+    public let initials: String
+
+    public init(id: UUID, name: String, initials: String) {
+        self.id = id
+        self.name = name
+        self.initials = initials
+    }
+}
+
 public struct WidgetEventSummary: Codable, Identifiable, Hashable {
     public let id: UUID
     public let title: String
@@ -9,14 +21,50 @@ public struct WidgetEventSummary: Codable, Identifiable, Hashable {
     public let date: Date
     public let imageURL: URL?
     public let imageData: Data?
+    public let friendsGoing: [WidgetFriendSummary]
 
-    public init(id: UUID, title: String, location: String, date: Date, imageURL: URL?, imageData: Data?) {
+    public init(
+        id: UUID,
+        title: String,
+        location: String,
+        date: Date,
+        imageURL: URL?,
+        imageData: Data?,
+        friendsGoing: [WidgetFriendSummary] = []
+    ) {
         self.id = id
         self.title = title
         self.location = location
         self.date = date
         self.imageURL = imageURL
         self.imageData = imageData
+        self.friendsGoing = friendsGoing
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, title, location, date, imageURL, imageData, friendsGoing
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        title = try container.decode(String.self, forKey: .title)
+        location = try container.decode(String.self, forKey: .location)
+        date = try container.decode(Date.self, forKey: .date)
+        imageURL = try container.decodeIfPresent(URL.self, forKey: .imageURL)
+        imageData = try container.decodeIfPresent(Data.self, forKey: .imageData)
+        friendsGoing = try container.decodeIfPresent([WidgetFriendSummary].self, forKey: .friendsGoing) ?? []
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(title, forKey: .title)
+        try container.encode(location, forKey: .location)
+        try container.encode(date, forKey: .date)
+        try container.encodeIfPresent(imageURL, forKey: .imageURL)
+        try container.encodeIfPresent(imageData, forKey: .imageData)
+        try container.encode(friendsGoing, forKey: .friendsGoing)
     }
 }
 
@@ -34,22 +82,42 @@ enum WidgetTimelineBridge {
         return decoder
     }()
 
-    static func save(events: [Event]) {
-        let summaries = events
-            .sorted { $0.date < $1.date }
-            .prefix(6)
-            .map { event in
-                WidgetEventSummary(
-                    id: event.id,
-                    title: event.title,
-                    location: event.location,
-                    date: event.date,
-                    imageURL: event.localImageData == nil ? event.imageURL : nil,
-                    imageData: event.localImageData
-                )
+    static func save(events: [Event], friends: [Friend], currentUser: Friend) async {
+        let friendLookup = buildFriendLookup(friends: friends, currentUser: currentUser)
+        let candidates = events.sorted { $0.date < $1.date }.prefix(6)
+
+        var summaries: [WidgetEventSummary] = []
+        summaries.reserveCapacity(candidates.count)
+
+        for event in candidates {
+            var resolvedImageData: Data? = event.localImageData
+            if resolvedImageData == nil {
+                resolvedImageData = await remoteImageData(for: event.imageURL)
             }
 
-        guard let data = try? encoder.encode(Array(summaries)),
+            let imageURLForWidget: URL? = {
+                if resolvedImageData != nil {
+                    return event.imageURL.isFileURL ? event.imageURL : nil
+                } else {
+                    return event.imageURL
+                }
+            }()
+
+            let attending = attendeeSummaries(for: event, lookup: friendLookup, currentUser: currentUser)
+
+            let summary = WidgetEventSummary(
+                id: event.id,
+                title: event.title,
+                location: event.location,
+                date: event.date,
+                imageURL: imageURLForWidget,
+                imageData: resolvedImageData,
+                friendsGoing: attending
+            )
+            summaries.append(summary)
+        }
+
+        guard let data = try? encoder.encode(summaries),
               let defaults = UserDefaults(suiteName: appGroupID) else {
             return
         }
@@ -67,14 +135,24 @@ enum WidgetTimelineBridge {
     }
 
     static func fallbackSummaries() -> [WidgetEventSummary] {
-        EventRepository.sampleEvents.map {
+        let lookup = buildFriendLookup(
+            friends: EventRepository.friends,
+            currentUser: EventRepository.currentUser
+        )
+
+        return EventRepository.sampleEvents.map { event in
             WidgetEventSummary(
-                id: $0.id,
-                title: $0.title,
-                location: $0.location,
-                date: $0.date,
-                imageURL: $0.imageURL,
-                imageData: nil
+                id: event.id,
+                title: event.title,
+                location: event.location,
+                date: event.date,
+                imageURL: event.imageURL,
+                imageData: nil,
+                friendsGoing: attendeeSummaries(
+                    for: event,
+                    lookup: lookup,
+                    currentUser: EventRepository.currentUser
+                )
             )
         }
     }
@@ -84,4 +162,48 @@ enum WidgetTimelineBridge {
         WidgetCenter.shared.reloadTimelines(ofKind: "StepOutWidget")
     }
     #endif
+
+    private static func buildFriendLookup(friends: [Friend], currentUser: Friend) -> [UUID: Friend] {
+        var lookup: [UUID: Friend] = [:]
+        lookup[currentUser.id] = currentUser
+        for friend in friends {
+            lookup[friend.id] = friend
+        }
+        return lookup
+    }
+
+    private static func attendeeSummaries(
+        for event: Event,
+        lookup: [UUID: Friend],
+        currentUser: Friend
+    ) -> [WidgetFriendSummary] {
+        let attendees = event.attendingFriendIDs
+            .compactMap { id -> WidgetFriendSummary? in
+                if id == currentUser.id {
+                    return WidgetFriendSummary(id: id, name: currentUser.name, initials: currentUser.initials)
+                }
+                guard let friend = lookup[id] else { return nil }
+                return WidgetFriendSummary(id: friend.id, name: friend.name, initials: friend.initials)
+            }
+        return Array(attendees.prefix(4))
+    }
+
+    private static func remoteImageData(for url: URL) async -> Data? {
+        if url.isFileURL {
+            return try? Data(contentsOf: url)
+        }
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 10
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let httpResponse = response as? HTTPURLResponse,
+                  (200..<300).contains(httpResponse.statusCode) else {
+                return nil
+            }
+            return data
+        } catch {
+            return nil
+        }
+    }
 }

@@ -8,6 +8,7 @@ struct OnboardingFlowView: View {
     @State private var contactsAllowed: Bool = false
     @State private var selectedCategories: Set<EventCategory> = []
     @Namespace private var animationNamespace
+    @StateObject private var authViewModel = PhoneAuthViewModel()
 
     private let categories: [EventCategory] = EventCategory.samples
     private let sampleContacts: [ContactItem] = ContactItem.samples
@@ -88,11 +89,32 @@ struct OnboardingFlowView: View {
                     }
                 }
 
+            if let error = authViewModel.errorMessage, step == .phone {
+                Text(error)
+                    .font(.footnote)
+                    .foregroundStyle(.red)
+            }
+            if let hint = authViewModel.codeHint, step == .phone {
+                Text(hint)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+
             Spacer(minLength: 12)
 
-            PrimaryButton(title: "Send Code", isEnabled: phoneNumber.count >= 10) {
-                withAnimation {
-                    step = .otp
+            PrimaryButton(
+                title: "Send Code",
+                isEnabled: phoneNumber.count >= 10,
+                isLoading: authViewModel.isSendingCode
+            ) {
+                Task {
+                    let success = await authViewModel.sendCode(for: phoneNumber)
+                    if success {
+                        otpCode = ""
+                        withAnimation {
+                            step = .otp
+                        }
+                    }
                 }
             }
         }
@@ -102,24 +124,48 @@ struct OnboardingFlowView: View {
         VStack(alignment: .leading, spacing: 20) {
             OnboardingHeader(
                 title: "Verify it’s you",
-                subtitle: "Enter the 4-digit code we just texted to \(formattedPhoneNumber())."
+                subtitle: "Enter the 6-digit code we just texted to \(formattedPhoneNumber())."
             )
 
             OTPInputView(code: $otpCode)
 
+            if let error = authViewModel.errorMessage, step == .otp {
+                Text(error)
+                    .font(.footnote)
+                    .foregroundStyle(.red)
+            }
+            if let hint = authViewModel.codeHint, step == .otp {
+                Text(hint)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+
             Spacer(minLength: 12)
 
-            PrimaryButton(title: "Continue", isEnabled: otpCode.count == 4) {
-                withAnimation {
-                    step = .contacts
+            PrimaryButton(
+                title: "Continue",
+                isEnabled: otpCode.count == 6,
+                isLoading: authViewModel.isVerifyingCode
+            ) {
+                Task {
+                    let success = await authViewModel.verify(code: otpCode)
+                    if success {
+                        withAnimation {
+                            step = .contacts
+                        }
+                    }
                 }
             }
 
             Button("Didn’t get a code? Resend") {
-                otpCode = ""
+                Task {
+                    _ = await authViewModel.sendCode(for: phoneNumber)
+                    otpCode = ""
+                }
             }
             .font(.footnote.weight(.semibold))
             .foregroundStyle(.secondary)
+            .disabled(authViewModel.isSendingCode)
         }
     }
 
@@ -228,15 +274,20 @@ struct OnboardingFlowView: View {
     }
 
     private func formattedPhoneNumber() -> String {
-        guard phoneNumber.count >= 4 else { return phoneNumber }
+        if authViewModel.formattedDisplayNumber.isEmpty == false {
+            return authViewModel.formattedDisplayNumber
+        }
+
+        let digits = phoneNumber.filter(\.isNumber)
+        guard digits.count >= 4 else { return phoneNumber }
         let mask = "(XXX) XXX-XXXX"
         var result = ""
-        var index = phoneNumber.startIndex
+        var index = digits.startIndex
 
-        for ch in mask where index < phoneNumber.endIndex {
+        for ch in mask where index < digits.endIndex {
             if ch == "X" {
-                result.append(phoneNumber[index])
-                index = phoneNumber.index(after: index)
+                result.append(digits[index])
+                index = digits.index(after: index)
             } else {
                 result.append(ch)
             }
@@ -248,7 +299,7 @@ struct OnboardingFlowView: View {
         guard step == .splash else { return }
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.4) {
             withAnimation {
-                step = .phone
+                step = .contacts
             }
         }
     }
@@ -257,20 +308,28 @@ struct OnboardingFlowView: View {
         case splash, phone, otp, contacts, interests
 
         var shouldShowProgress: Bool {
-            self != .splash
+            switch self {
+            case .splash, .phone, .otp:
+                return false
+            case .contacts, .interests:
+                return true
+            }
         }
 
         var progressIndex: Int {
             switch self {
-            case .splash: return 0
-            case .phone: return 0
-            case .otp: return 1
-            case .contacts: return 2
-            case .interests: return 3
+            case .splash:
+                return 0
+            case .contacts:
+                return 0
+            case .interests:
+                return 1
+            case .phone, .otp:
+                return 0
             }
         }
 
-        static var progressTotal: Int { 4 }
+        static var progressTotal: Int { 2 }
     }
 }
 
@@ -293,21 +352,36 @@ private struct OnboardingHeader: View {
 private struct PrimaryButton: View {
     let title: String
     var isEnabled: Bool = true
+    var isLoading: Bool = false
     let action: () -> Void
 
     var body: some View {
-        Button(action: action) {
-            Text(title)
-                .font(.headline.weight(.bold))
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 16)
-                .background(
-                    RoundedRectangle(cornerRadius: 22, style: .continuous)
-                        .fill(isEnabled ? Color.blue : Color.gray.opacity(0.3))
-                )
-                .foregroundStyle(.white)
+        let backgroundColor: Color = (isEnabled && !isLoading) ? .blue : Color.gray.opacity(0.3)
+
+        Button {
+            guard !isLoading else { return }
+            action()
+        } label: {
+            ZStack {
+                Text(title)
+                    .font(.headline.weight(.bold))
+                    .opacity(isLoading ? 0 : 1)
+
+                if isLoading {
+                    ProgressView()
+                        .progressViewStyle(.circular)
+                        .tint(.white)
+                }
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 16)
+            .background(
+                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    .fill(backgroundColor)
+            )
+            .foregroundStyle(.white)
         }
-        .disabled(!isEnabled)
+        .disabled(!isEnabled || isLoading)
     }
 }
 
@@ -436,7 +510,7 @@ private struct TimelinePath: Shape {
 private struct OTPInputView: View {
     @Binding var code: String
 
-    private let maxDigits = 4
+    private let maxDigits = 6
     @FocusState private var isFocused: Bool
 
     var body: some View {

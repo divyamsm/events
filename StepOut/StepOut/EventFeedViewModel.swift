@@ -318,9 +318,17 @@ final class EventFeedViewModel: ObservableObject {
     }
 
     private func persistWidgetSnapshot() {
-        WidgetTimelineBridge.save(events: latestEvents)
-        #if canImport(WidgetKit)
-        WidgetTimelineBridge.reloadWidgetTimelines()
-        #endif
+        let events = latestEvents
+        let friends = friendsCatalog
+        let user = session.user
+
+        Task.detached(priority: .background) {
+            await WidgetTimelineBridge.save(events: events, friends: friends, currentUser: user)
+            #if canImport(WidgetKit)
+            await MainActor.run {
+                WidgetTimelineBridge.reloadWidgetTimelines()
+            }
+            #endif
+        }
     }
 }

@@ -49,6 +49,7 @@ struct Provider: TimelineProvider {
 struct StepOutWidgetEntryView: View {
     var entry: Provider.Entry
     private let cornerRadius: CGFloat = 20
+    private let contentPadding: CGFloat = 16
 
     private let dateFormatter: RelativeDateTimeFormatter = {
         let formatter = RelativeDateTimeFormatter()
@@ -72,25 +73,7 @@ struct StepOutWidgetEntryView: View {
                 .frame(width: size.width, height: size.height)
                 .allowsHitTesting(false)
 
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Next Event")
-                        .font(.caption)
-                        .textCase(.uppercase)
-                        .foregroundStyle(.white.opacity(0.85))
-                    Text(entry.summary.title)
-                        .font(.headline)
-                        .lineLimit(2)
-                    Text(entry.summary.location)
-                        .font(.subheadline)
-                        .foregroundStyle(.white.opacity(0.85))
-                        .lineLimit(1)
-                    Spacer()
-                    Text(dateFormatter.localizedString(for: entry.summary.date, relativeTo: .now))
-                        .font(.footnote)
-                        .foregroundStyle(.white.opacity(0.75))
-                }
-                .padding()
-                .frame(width: size.width, height: size.height, alignment: .bottomLeading)
+                contentOverlay(in: size)
             }
             .frame(width: size.width, height: size.height)
             .contentShape(shape)
@@ -100,6 +83,111 @@ struct StepOutWidgetEntryView: View {
         }
         .foregroundStyle(.white)
         .widgetURL(URL(string: "stepout://event/\(entry.summary.id.uuidString)"))
+        .widgetContainerBackground()
+    }
+
+    private func contentOverlay(in size: CGSize) -> some View {
+        VStack(spacing: 10) {
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Next Event")
+                        .font(.caption2.weight(.semibold))
+                        .textCase(.uppercase)
+                        .foregroundStyle(.white.opacity(0.9))
+                        .lineLimit(1)
+                    Text(entry.summary.title)
+                        .font(.system(size: min(size.width * 0.17, 26), weight: .bold, design: .rounded))
+                        .lineLimit(2)
+                        .minimumScaleFactor(0.65)
+                    Text(entry.summary.location)
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(.white.opacity(0.9))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+                }
+                Spacer(minLength: 12)
+                if entry.summary.friendsGoing.isEmpty == false {
+                    friendsGoingView
+                }
+            }
+            Spacer(minLength: 0)
+            Text(dateFormatter.localizedString(for: entry.summary.date, relativeTo: .now))
+                .font(.footnote.weight(.medium))
+                .foregroundStyle(.white.opacity(0.85))
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.horizontal, contentPadding)
+        .padding(.vertical, contentPadding)
+        .frame(width: size.width, height: size.height, alignment: .topLeading)
+    }
+
+    private var friendsGoingView: some View {
+        let displayedFriends = Array(entry.summary.friendsGoing.prefix(3))
+        let extraCount = max(entry.summary.friendsGoing.count - displayedFriends.count, 0)
+
+        return VStack(alignment: .trailing, spacing: 6) {
+            avatarStack(for: displayedFriends)
+            Text(friendsSummaryText(for: displayedFriends, extraCount: extraCount))
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(.white.opacity(0.9))
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+        }
+        .frame(width: 110, alignment: .trailing)
+    }
+
+    private func friendsSummaryText(for friends: [WidgetFriendSummary], extraCount: Int) -> String {
+        var names = friends.map { firstName(from: $0.name) }
+        if names.isEmpty {
+            return ""
+        }
+
+        let summary: String
+        if names.count == 1 {
+            summary = names[0]
+        } else {
+            summary = names.prefix(2).joined(separator: ", ")
+        }
+
+        if extraCount > 0 {
+            return summary + " +" + String(extraCount)
+        }
+        return summary
+    }
+
+    private func firstName(from fullName: String) -> String {
+        fullName.split(separator: " ").first.map(String.init) ?? fullName
+    }
+
+    private func friendAvatar(for friend: WidgetFriendSummary) -> some View {
+        Text(friend.initials)
+            .font(.caption.weight(.bold))
+            .frame(width: 32, height: 32)
+            .background(
+                Circle()
+                    .fill(avatarColor(for: friend.id))
+                    .overlay(Circle().stroke(Color.white.opacity(0.6), lineWidth: 1))
+            )
+            .foregroundStyle(.white)
+    }
+
+    private func avatarColor(for id: UUID) -> Color {
+        var hasher = Hasher()
+        hasher.combine(id)
+        let value = abs(hasher.finalize())
+        let hue = Double(value % 360) / 360.0
+        return Color(hue: hue, saturation: 0.55, brightness: 0.85)
+    }
+
+    private func avatarStack(for friends: [WidgetFriendSummary]) -> some View {
+        HStack(spacing: -10) {
+            ForEach(friends, id: \.id) { friend in
+                friendAvatar(for: friend)
+            }
+        }
+        .frame(height: 32, alignment: .trailing)
     }
 
     @ViewBuilder
@@ -151,5 +239,16 @@ struct StepOutWidget: Widget {
         .configurationDisplayName("Next Event")
         .description("Keep an eye on what's coming up.")
         .supportedFamilies([.systemSmall, .systemMedium])
+    }
+}
+
+private extension View {
+    @ViewBuilder
+    func widgetContainerBackground() -> some View {
+        if #available(iOSApplicationExtension 17.0, *) {
+            containerBackground(.clear, for: .widget)
+        } else {
+            background(Color.clear)
+        }
     }
 }
