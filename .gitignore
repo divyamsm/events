@@ -12,7 +12,18 @@ build/
 *.mode2v3
 *.perspectivev3
 xcuserdata/
+*.xcuserstate
+*.xcuserdatad
+*.xcbkptlist
 *.xccheckout
+*.xcscmblueprint
+*.moved-aside
+*.swp
+*.tmp
+.vscode/
+.idea/
+*.code-workspace
+*.iml
 
 # Swift Package Manager
 .build/
