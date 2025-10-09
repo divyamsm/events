@@ -13,6 +13,7 @@ struct ContentView: View {
     @State private var editingEvent: EventFeedViewModel.FeedEvent?
     @State private var deleteTarget: EventFeedViewModel.FeedEvent?
     @State private var showAttendanceSheet: EventFeedViewModel.FeedEvent?
+    @State private var pendingRSVP: EventFeedViewModel.FeedEvent?
 
     init(
         appState: AppState,
@@ -55,7 +56,11 @@ struct ContentView: View {
                                                         viewModel.beginShare(for: feedEvent)
                                                     },
                                                     rsvpAction: {
-                                                        viewModel.toggleAttendance(for: feedEvent)
+                                                        if feedEvent.isAttending {
+                                                            viewModel.updateAttendance(for: feedEvent, going: false, arrivalTime: nil)
+                                                        } else {
+                                                            pendingRSVP = feedEvent
+                                                        }
                                                     },
                                                     editAction: feedEvent.isEditable ? {
                                                         editingEvent = feedEvent
@@ -84,7 +89,11 @@ struct ContentView: View {
                                         viewModel.beginShare(for: feedEvent)
                                     },
                                     rsvpTapped: { feedEvent in
-                                        viewModel.toggleAttendance(for: feedEvent)
+                                        if feedEvent.isAttending {
+                                            viewModel.updateAttendance(for: feedEvent, going: false, arrivalTime: nil)
+                                        } else {
+                                            pendingRSVP = feedEvent
+                                        }
                                     },
                                     editTapped: { feedEvent in
                                         if feedEvent.isEditable {
@@ -187,6 +196,16 @@ struct ContentView: View {
         .sheet(item: $showAttendanceSheet) { feedEvent in
             AttendanceListView(feedEvent: feedEvent)
         }
+        .sheet(item: $pendingRSVP) { feedEvent in
+            RSVPArrivalSheet(feedEvent: feedEvent) { arrival in
+                viewModel.updateAttendance(for: feedEvent, going: true, arrivalTime: arrival)
+                pendingRSVP = nil
+            } onCancel: {
+                pendingRSVP = nil
+            }
+            .presentationDetents([.fraction(0.55), .large])
+            .presentationDragIndicator(.visible)
+        }
         .alert(item: $alertContext) { context in
             Alert(
                 title: Text(context.title),
@@ -243,6 +262,12 @@ private struct EventCardView: View {
         return formatter
     }()
 
+    private let timeFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.timeStyle = .short
+        return formatter
+    }()
+
     var body: some View {
         GeometryReader { geo in
             let size = geo.size
@@ -280,25 +305,24 @@ private struct EventCardView: View {
             .overlay(shape.stroke(Color.white.opacity(0.05)))
             .shadow(color: .black.opacity(0.25), radius: 16, x: 0, y: 12)
             .overlay(alignment: .topTrailing) {
-                if let editAction, let deleteAction {
-                    Menu {
-                        Button("Edit", action: editAction)
-                        Button("Delete", role: .destructive, action: deleteAction)
-                    } label: {
-                        Image(systemName: "ellipsis.circle.fill")
-                            .font(.title3)
-                            .symbolRenderingMode(.hierarchical)
-                            .foregroundStyle(.white.opacity(0.9))
-                            .padding(18)
+                VStack(alignment: .trailing, spacing: 12) {
+                    if let editAction, let deleteAction {
+                        Menu {
+                            Button("Edit", action: editAction)
+                            Button("Delete", role: .destructive, action: deleteAction)
+                        } label: {
+                            Image(systemName: "ellipsis.circle.fill")
+                                .font(.title3)
+                                .symbolRenderingMode(.hierarchical)
+                                .foregroundStyle(.white.opacity(0.9))
+                        }
+                        .accessibilityLabel("Event actions")
                     }
-                    .accessibilityLabel("Event actions")
+
+                    privacyBadge
                 }
-            }
-            .overlay(alignment: .topTrailing) {
-                privacyBadge
-                    .padding(.top, 18)
-                    .padding(.trailing, 24)
-                    .offset(x: editAction == nil ? 0 : -50)
+                .padding(.top, 18)
+                .padding(.trailing, 24)
             }
         }
         .foregroundStyle(.white)
@@ -394,6 +418,15 @@ private struct EventCardView: View {
             }
 
             if feedEvent.isAttending {
+                if let arrival = feedEvent.myArrivalTime {
+                    Text("Arriving \(timeFormatter.string(from: arrival))")
+                        .font(.caption)
+                        .foregroundStyle(.white.opacity(0.85))
+                } else {
+                    Text("Arrival time TBD")
+                        .font(.caption)
+                        .foregroundStyle(.white.opacity(0.6))
+                }
                 let friendsCount = max(feedEvent.attendingCount - 1, 0)
                 Text(friendsCount > 0 ? "You + \(friendsCount) friend\(friendsCount == 1 ? "" : "s") are going" : "You're going")
                     .font(.caption.weight(.semibold))
@@ -586,11 +619,17 @@ private struct FriendBadgeView: View {
 private struct AttendanceListView: View {
     let feedEvent: EventFeedViewModel.FeedEvent
 
+    private let timeFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.timeStyle = .short
+        return formatter
+    }()
+
     var body: some View {
         NavigationStack {
             List {
                 Section("People going") {
-                    ForEach(feedEvent.badges.filter { $0.role == .going || $0.role == .me }) { badge in
+                    ForEach(sortedGoingBadges) { badge in
                         attendeeRow(for: badge, role: badge.role == .me ? "You" : "Going")
                     }
                 }
@@ -632,8 +671,327 @@ private struct AttendanceListView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+            Spacer()
+            Text(arrivalText(for: badge))
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.primary)
         }
         .padding(.vertical, 4)
+    }
+
+    private var sortedGoingBadges: [EventFeedViewModel.FeedEvent.FriendBadge] {
+        feedEvent.badges
+            .filter { $0.role == .going || $0.role == .me }
+            .sorted { lhs, rhs in
+                let lhsTime = arrivalTime(for: lhs) ?? Date.distantFuture
+                let rhsTime = arrivalTime(for: rhs) ?? Date.distantFuture
+                if lhsTime == rhsTime {
+                    return lhs.friend.name < rhs.friend.name
+                }
+                return lhsTime < rhsTime
+            }
+    }
+
+    private func arrivalTime(for badge: EventFeedViewModel.FeedEvent.FriendBadge) -> Date? {
+        feedEvent.event.arrivalTimes[badge.friend.id]
+    }
+
+    private func arrivalText(for badge: EventFeedViewModel.FeedEvent.FriendBadge) -> String {
+        guard badge.role == .going || badge.role == .me else { return "" }
+        if let time = arrivalTime(for: badge) {
+            return timeFormatter.string(from: time)
+        }
+        return "TBD"
+    }
+}
+
+private struct RSVPArrivalSheet: View {
+    enum Choice: String, CaseIterable, Identifiable {
+        case onTime
+        case custom
+        case unsure
+
+        var id: String { rawValue }
+
+        var title: String {
+            switch self {
+            case .onTime: return "On time"
+            case .custom: return "Pick a time"
+            case .unsure: return "Not sure yet"
+            }
+        }
+    }
+
+    let feedEvent: EventFeedViewModel.FeedEvent
+    let onConfirm: (Date?) -> Void
+    let onCancel: () -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var choice: Choice = .onTime
+    @State private var customTime: Date
+
+    private let timeFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.timeStyle = .short
+        return formatter
+    }()
+
+    private let eventDetailFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .short
+        return formatter
+    }()
+
+    init(feedEvent: EventFeedViewModel.FeedEvent, onConfirm: @escaping (Date?) -> Void, onCancel: @escaping () -> Void) {
+        self.feedEvent = feedEvent
+        self.onConfirm = onConfirm
+        self.onCancel = onCancel
+
+        if let arrival = feedEvent.myArrivalTime {
+            let calendar = Calendar.current
+            if calendar.isDate(arrival, equalTo: feedEvent.event.date, toGranularity: .minute) {
+                _choice = State(initialValue: .onTime)
+                _customTime = State(initialValue: arrival)
+            } else {
+                _choice = State(initialValue: .custom)
+                _customTime = State(initialValue: arrival)
+            }
+        } else {
+            _choice = State(initialValue: .unsure)
+            _customTime = State(initialValue: feedEvent.event.date)
+        }
+    }
+
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                LinearGradient(
+                    gradient: Gradient(colors: [Color(.systemGroupedBackground), Color(.systemBackground)]),
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+                .ignoresSafeArea()
+
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 24) {
+                        heroSection
+                        arrivalOptionsCard
+
+                        if attendeeArrivals.isEmpty == false {
+                            attendeesCard
+                        }
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 28)
+                }
+            }
+            .navigationTitle("Confirm arrival")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("Cancel") {
+                        onCancel()
+                        dismiss()
+                    }
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Done") {
+                        confirm()
+                    }
+                    .buttonStyle(.borderedProminent)
+                }
+            }
+        }
+    }
+
+    private var allowedRange: ClosedRange<Date> {
+        let calendar = Calendar.current
+        let start = calendar.startOfDay(for: feedEvent.event.date)
+        let end = calendar.date(byAdding: .day, value: 1, to: start) ?? feedEvent.event.date
+        return start...end
+    }
+
+    private var summaryText: String {
+        switch choice {
+        case .onTime:
+            return "Arrive at the scheduled start time (\(timeFormatter.string(from: feedEvent.event.date)))."
+        case .custom:
+            return "Custom arrival: \(timeFormatter.string(from: customTime))."
+        case .unsure:
+            return "We'll mark your arrival time as TBD."
+        }
+    }
+
+    private var heroSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Pick when you'll arrive")
+                .font(.title3.bold())
+
+            HStack(alignment: .top, spacing: 12) {
+                RoundedRectangle(cornerRadius: 14)
+                    .fill(Color.accentColor.opacity(0.15))
+                    .frame(width: 48, height: 48)
+                    .overlay(
+                        Image(systemName: "clock.badge.checkmark")
+                            .font(.title3.weight(.semibold))
+                            .foregroundStyle(Color.accentColor)
+                    )
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(feedEvent.event.title)
+                        .font(.headline)
+                    Text(eventDetailFormatter.string(from: feedEvent.event.date))
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                    Text(feedEvent.event.location)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
+
+    private var arrivalOptionsCard: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            Text("Arrival time")
+                .font(.headline)
+
+            Picker("Arrival", selection: $choice) {
+                ForEach(Choice.allCases) { option in
+                    Text(option.title).tag(option)
+                }
+            }
+            .pickerStyle(.segmented)
+
+            if choice == .custom {
+                DatePicker(
+                    "Custom arrival",
+                    selection: $customTime,
+                    in: allowedRange,
+                    displayedComponents: [.hourAndMinute]
+                )
+                .labelsHidden()
+                .datePickerStyle(.wheel)
+                .frame(maxWidth: .infinity)
+            }
+
+            HStack(alignment: .center, spacing: 12) {
+                Image(systemName: "sparkles")
+                    .foregroundStyle(.secondary)
+                Text(summaryText)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(20)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .fill(.ultraThinMaterial)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .stroke(Color.white.opacity(0.15), lineWidth: 1)
+        )
+    }
+
+    private var attendeesCard: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Friends heading over")
+                .font(.headline)
+
+            VStack(spacing: 12) {
+                ForEach(Array(attendeeArrivals.prefix(4))) { badge in
+                    attendeePreviewRow(for: badge)
+                }
+
+                if attendeeArrivals.count > 4 {
+                    Text("+\(attendeeArrivals.count - 4) more planning to go")
+                        .font(.footnote.weight(.medium))
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+        }
+        .padding(20)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .fill(Color(.secondarySystemBackground))
+        )
+    }
+
+    private func attendeePreviewRow(for badge: EventFeedViewModel.FeedEvent.FriendBadge) -> some View {
+        HStack(spacing: 14) {
+            Circle()
+                .fill(Color.accentColor.opacity(0.15))
+                .frame(width: 44, height: 44)
+                .overlay(
+                    Text(badge.friend.initials)
+                        .font(.headline.weight(.semibold))
+                        .foregroundStyle(Color.accentColor)
+                )
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(badge.role == .me ? "You" : badge.friend.name)
+                    .font(.subheadline.weight(.semibold))
+                Text(arrivalText(for: badge))
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer()
+
+            if let arrival = arrivalTime(for: badge) {
+                Text(timeFormatter.string(from: arrival))
+                    .font(.subheadline.bold())
+                    .foregroundStyle(.primary)
+            } else {
+                Text("TBD")
+                    .font(.subheadline.bold())
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(.vertical, 4)
+    }
+
+    private var attendeeArrivals: [EventFeedViewModel.FeedEvent.FriendBadge] {
+        feedEvent.badges
+            .filter { $0.role == .going || $0.role == .me }
+            .sorted { lhs, rhs in
+                let lhsTime = arrivalTime(for: lhs) ?? Date.distantFuture
+                let rhsTime = arrivalTime(for: rhs) ?? Date.distantFuture
+                if lhsTime == rhsTime {
+                    return lhs.friend.name < rhs.friend.name
+                }
+                return lhsTime < rhsTime
+            }
+    }
+
+    private func arrivalTime(for badge: EventFeedViewModel.FeedEvent.FriendBadge) -> Date? {
+        feedEvent.event.arrivalTimes[badge.friend.id]
+    }
+
+    private func arrivalText(for badge: EventFeedViewModel.FeedEvent.FriendBadge) -> String {
+        if arrivalTime(for: badge) != nil {
+            return badge.role == .me ? "Your current arrival plan" : "Shared arrival time"
+        }
+        return badge.role == .me ? "Set when you'll head over" : "Hasn't picked a time yet"
+    }
+
+    private func confirm() {
+        let selectedTime: Date?
+        switch choice {
+        case .onTime:
+            selectedTime = feedEvent.event.date
+        case .custom:
+            selectedTime = customTime
+        case .unsure:
+            selectedTime = nil
+        }
+        onConfirm(selectedTime)
+        dismiss()
     }
 }
 
