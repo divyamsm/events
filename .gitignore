@@ -3,6 +3,7 @@
 
 # Xcode build artifacts
 DerivedData/
+**/DerivedData/
 build/
 
 # Xcode user-specific files

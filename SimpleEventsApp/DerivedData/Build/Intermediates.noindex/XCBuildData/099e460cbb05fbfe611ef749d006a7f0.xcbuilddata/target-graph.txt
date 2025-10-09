@@ -1,4 +1,0 @@
-Target dependency graph (2 targets)
-Target 'SimpleEventsApp' in project 'SimpleEventsApp'
-➜ Explicit dependency on target 'SimpleEventsWidget' in project 'SimpleEventsApp'
-Target 'SimpleEventsWidget' in project 'SimpleEventsApp' (no dependencies)
