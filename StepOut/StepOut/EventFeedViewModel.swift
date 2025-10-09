@@ -23,6 +23,7 @@ final class EventFeedViewModel: ObservableObject {
         let isAttending: Bool
         let attendingCount: Int
         let isEditable: Bool
+        let myArrivalTime: Date?
 
         var id: UUID { event.id }
         var isInvite: Bool {
@@ -135,24 +136,37 @@ final class EventFeedViewModel: ObservableObject {
         }
     }
 
-    func toggleAttendance(for feedEvent: FeedEvent) {
+    func updateAttendance(for feedEvent: FeedEvent, going: Bool, arrivalTime: Date?) {
         let eventID = feedEvent.event.id
-        let isCurrentlyGoing = appState.attendingEventIDs.contains(eventID)
 
-        if isCurrentlyGoing {
-            appState.attendingEventIDs.remove(eventID)
-        } else {
+        if going {
             appState.attendingEventIDs.insert(eventID)
+        } else {
+            appState.attendingEventIDs.remove(eventID)
+        }
+
+        func applyUpdates(to event: inout Event) {
+            if going {
+                if event.attendingFriendIDs.contains(session.user.id) == false {
+                    event.attendingFriendIDs.append(session.user.id)
+                }
+                if let arrivalTime {
+                    event.arrivalTimes[session.user.id] = arrivalTime
+                } else {
+                    event.arrivalTimes.removeValue(forKey: session.user.id)
+                }
+            } else {
+                event.attendingFriendIDs.removeAll { $0 == session.user.id }
+                event.arrivalTimes.removeValue(forKey: session.user.id)
+            }
+        }
+
+        if let createdIndex = appState.createdEvents.firstIndex(where: { $0.id == eventID }) {
+            applyUpdates(to: &appState.createdEvents[createdIndex])
         }
 
         if let index = latestEvents.firstIndex(where: { $0.id == eventID }) {
-            var event = latestEvents[index]
-            if isCurrentlyGoing {
-                event.attendingFriendIDs.removeAll(where: { $0 == session.user.id })
-            } else if event.attendingFriendIDs.contains(session.user.id) == false {
-                event.attendingFriendIDs.append(session.user.id)
-            }
-            latestEvents[index] = event
+            applyUpdates(to: &latestEvents[index])
         }
 
         feedEvents = buildFeedEvents(from: latestEvents, friends: friendsCatalog)
@@ -181,7 +195,8 @@ final class EventFeedViewModel: ObservableObject {
             attendingFriendIDs: [session.user.id],
             sharedInviteFriendIDs: invitedFriendIDs,
             privacy: privacy,
-            localImageData: localImageData
+            localImageData: localImageData,
+            arrivalTimes: [session.user.id: date]
         )
 
         appState.createdEvents.insert(event, at: 0)
@@ -213,6 +228,7 @@ final class EventFeedViewModel: ObservableObject {
             appState.createdEvents[createdIndex].coordinate = coordinate
             appState.createdEvents[createdIndex].privacy = privacy
             appState.createdEvents[createdIndex].sharedInviteFriendIDs = invitedFriendIDs
+            appState.createdEvents[createdIndex].arrivalTimes[session.user.id] = appState.createdEvents[createdIndex].arrivalTimes[session.user.id] ?? date
             if let localImageData {
                 appState.createdEvents[createdIndex].localImageData = localImageData
             }
@@ -225,6 +241,7 @@ final class EventFeedViewModel: ObservableObject {
             latestEvents[latestIndex].coordinate = coordinate
             latestEvents[latestIndex].privacy = privacy
             latestEvents[latestIndex].sharedInviteFriendIDs = invitedFriendIDs
+            latestEvents[latestIndex].arrivalTimes[session.user.id] = latestEvents[latestIndex].arrivalTimes[session.user.id] ?? date
             if let localImageData {
                 latestEvents[latestIndex].localImageData = localImageData
             }
@@ -249,7 +266,7 @@ final class EventFeedViewModel: ObservableObject {
         let createdIDs = Set(appState.createdEvents.map { $0.id })
 
         let visibleEvents = events.filter { event in
-            event.privacy == .public || appState.createdEvents.contains(where: { $0.id == event.id }) || event.sharedInviteFriendIDs.contains(session.user.id)
+            event.privacy == .public || createdIDs.contains(event.id) || event.sharedInviteFriendIDs.contains(session.user.id)
         }
 
         let enriched = visibleEvents.map { event -> FeedEvent in
@@ -279,7 +296,8 @@ final class EventFeedViewModel: ObservableObject {
                 distance: distance,
                 isAttending: isAttending,
                 attendingCount: attendingCount,
-                isEditable: createdIDs.contains(event.id)
+                isEditable: createdIDs.contains(event.id),
+                myArrivalTime: event.arrivalTimes[session.user.id]
             )
         }
 

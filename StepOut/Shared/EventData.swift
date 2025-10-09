@@ -48,6 +48,7 @@ struct Event: Identifiable, Hashable {
     var sharedInviteFriendIDs: [UUID]
     var privacy: Privacy
     var localImageData: Data?
+    var arrivalTimes: [UUID: Date]
 
     init(
         id: UUID = UUID(),
@@ -60,7 +61,8 @@ struct Event: Identifiable, Hashable {
         invitedByFriendIDs: [UUID] = [],
         sharedInviteFriendIDs: [UUID] = [],
         privacy: Privacy = .public,
-        localImageData: Data? = nil
+        localImageData: Data? = nil,
+        arrivalTimes: [UUID: Date] = [:]
     ) {
         self.id = id
         self.title = title
@@ -73,6 +75,7 @@ struct Event: Identifiable, Hashable {
         self.sharedInviteFriendIDs = sharedInviteFriendIDs
         self.privacy = privacy
         self.localImageData = localImageData
+        self.arrivalTimes = arrivalTimes
     }
     static func == (lhs: Event, rhs: Event) -> Bool {
         lhs.id == rhs.id
@@ -147,7 +150,11 @@ enum EventRepository {
             imageURL: URL(string: "https://images.unsplash.com/photo-1521737604893-d14cc237f11d?auto=format&fit=crop&w=1400&q=80")!,
             coordinate: CLLocationCoordinate2D(latitude: 37.776_321, longitude: -122.417_864),
             attendingFriendIDs: [friendDisha.id, friendDivyam.id],
-            invitedByFriendIDs: [friendShreyas.id]
+            invitedByFriendIDs: [friendShreyas.id],
+            arrivalTimes: [
+                friendDisha.id: .now.addingTimeInterval(60 * 60 * 24 * 2 + 900),
+                friendDivyam.id: .now.addingTimeInterval(60 * 60 * 24 * 2 + 1800)
+            ]
         ),
         Event(
             id: UUID(uuidString: "D354D6E7-885C-4949-A2D7-0C79431635F7")!,
@@ -157,7 +164,10 @@ enum EventRepository {
             imageURL: URL(string: "https://images.unsplash.com/photo-1522202176988-66273c2fd55f?auto=format&fit=crop&w=1400&q=80")!,
             coordinate: nil,
             attendingFriendIDs: [friendMaya.id],
-            invitedByFriendIDs: []
+            invitedByFriendIDs: [],
+            arrivalTimes: [
+                friendMaya.id: .now.addingTimeInterval(60 * 60 * 24 * 7 + 1200)
+            ]
         ),
         Event(
             id: UUID(uuidString: "8C7B1B8F-6F02-49DA-AB43-6C45CE3631DC")!,
@@ -169,7 +179,10 @@ enum EventRepository {
             attendingFriendIDs: [friendJordan.id],
             invitedByFriendIDs: [],
             sharedInviteFriendIDs: [currentUser.id],
-            privacy: .private
+            privacy: .private,
+            arrivalTimes: [
+                friendJordan.id: .now.addingTimeInterval(60 * 60 * 24 * 14 + 600)
+            ]
         )
     ]
 }
