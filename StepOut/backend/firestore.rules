@@ -1,0 +1,62 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    match /users/{userId} {
+      allow read: if isOwner(userId);
+      allow create: if isOwner(userId);
+      allow update: if isOwner(userId);
+      allow delete: if false;
+    }
+
+    match /events/{eventId} {
+      allow read: if resource.data.visibility == "public";
+
+      allow create: if isSignedIn()
+        && request.resource.data.ownerId == request.auth.uid;
+
+      allow update: if isSignedIn()
+        && resource.data.ownerId == request.auth.uid;
+
+      allow delete: if false; // use soft delete via the `canceled` flag.
+
+      match /members/{memberId} {
+        allow read: if true;
+
+        allow create, update: if isSignedIn()
+          && (memberId == request.auth.uid
+            || isOwner(get(/databases/$(database)/documents/events/$(eventId)).data.ownerId));
+
+        allow delete: if false;
+      }
+    }
+
+    match /invites/{inviteId} {
+      allow create: if isSignedIn()
+        && request.resource.data.senderId == request.auth.uid;
+
+      allow read: if isSignedIn()
+        && (request.resource.data.senderId == request.auth.uid
+          || request.resource.data.recipientUserId == request.auth.uid);
+
+      allow update: if isSignedIn()
+        && (
+          (request.resource.data.senderId == request.auth.uid)
+          || (request.resource.data.recipientUserId == request.auth.uid)
+        );
+
+      allow delete: if false;
+    }
+
+    match /widgetSnapshots/{userId} {
+      allow read, write: if isOwner(userId);
+    }
+  }
+}

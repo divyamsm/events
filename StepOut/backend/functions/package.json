@@ -1,0 +1,27 @@
+{
+  "name": "stepout-functions",
+  "version": "0.1.0",
+  "private": true,
+  "engines": {
+    "node": ">=18"
+  },
+  "main": "lib/index.js",
+  "scripts": {
+    "build": "tsc --project tsconfig.json",
+    "lint": "eslint \"src/**/*.{ts,tsx}\"",
+    "clean": "rm -rf lib",
+    "deploy": "npm run build && firebase deploy --only functions"
+  },
+  "dependencies": {
+    "firebase-admin": "^11.11.1",
+    "firebase-functions": "^5.0.1",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.30",
+    "eslint": "^8.57.0",
+    "eslint-config-prettier": "^9.1.0",
+    "eslint-plugin-import": "^2.29.1",
+    "typescript": "^5.4.5"
+  }
+}

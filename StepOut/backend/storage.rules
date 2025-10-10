@@ -1,0 +1,18 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    match /event-media/{eventId}/{fileName} {
+      allow read: if true; // event covers are public
+      allow write: if isSignedIn();
+    }
+
+    match /user-media/{userId}/{fileName} {
+      allow read: if true;
+      allow write: if isSignedIn() && request.auth.uid == userId;
+    }
+  }
+}

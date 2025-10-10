@@ -22,6 +22,8 @@
 		FF1A4CE229A1A2D000000201 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF1A4CE229A1A2D000000101 /* ContentView.swift */; };
 		FF1A4CE229A1A2D000000202 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = FF1A4CE229A1A2D000000102 /* Assets.xcassets */; };
 		FF1A4CE329A1A2D000000210 /* EventData.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF1A4CE329A1A2D000000110 /* EventData.swift */; };
+		FF9C0AA12F0D0001000AAA01 /* FirebaseEventBackend.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF9C0AA02F0D0001000AAA00 /* FirebaseEventBackend.swift */; };
+		FF9C0AA32F0D0132000AAA02 /* Notification+Extensions.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF9C0AA22F0D0132000AAA02 /* Notification+Extensions.swift */; };
 		FF1A4CE329A1A2D000000211 /* StepOutWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF1A4CE329A1A2D000000111 /* StepOutWidget.swift */; };
 		FF1A4CE329A1A2D000000212 /* StepOutWidgetBundle.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF1A4CE329A1A2D000000112 /* StepOutWidgetBundle.swift */; };
 		FF1A4CE329A1A2D000000213 /* EventData.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF1A4CE329A1A2D000000110 /* EventData.swift */; };
@@ -73,6 +75,8 @@
 		FF1A4CE229A1A2D000000104 /* Preview Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = "Preview Assets.xcassets"; sourceTree = "<group>"; };
 		FF1A4CE229A1A2D000000400 /* StepOut.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = StepOut.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		FF1A4CE329A1A2D000000110 /* EventData.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EventData.swift; sourceTree = "<group>"; };
+		FF9C0AA02F0D0001000AAA00 /* FirebaseEventBackend.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FirebaseEventBackend.swift; sourceTree = "<group>"; };
+		FF9C0AA22F0D0132000AAA02 /* Notification+Extensions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Notification+Extensions.swift"; sourceTree = "<group>"; };
 		FF1A4CE329A1A2D000000111 /* StepOutWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StepOutWidget.swift; sourceTree = "<group>"; };
 		FF1A4CE329A1A2D000000112 /* StepOutWidgetBundle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StepOutWidgetBundle.swift; sourceTree = "<group>"; };
 		FF1A4CE329A1A2D000000113 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
@@ -168,6 +172,8 @@
 			children = (
 				FF1A4CE329A1A2D000000110 /* EventData.swift */,
 				FF1A4CE429A1A2D000000120 /* EventBackend.swift */,
+				FF9C0AA02F0D0001000AAA00 /* FirebaseEventBackend.swift */,
+				FF9C0AA22F0D0132000AAA02 /* Notification+Extensions.swift */,
 				FF3B9B1E2BE671D3000A1234 /* PhoneAuthViewModel.swift */,
 				FF1A4CE429A1A2D000000122 /* ProfileData.swift */,
 				FF1A4CE529A1A2D000000130 /* WidgetTimelineBridge.swift */,
@@ -291,6 +297,8 @@
 				FF1A4CE529A1A2D000000230 /* WidgetTimelineBridge.swift in Sources */,
 				FF1A4CE329A1A2D000000210 /* EventData.swift in Sources */,
 				FF3B9B1F2BE671D3000A1234 /* PhoneAuthViewModel.swift in Sources */,
+				FF9C0AA32F0D0132000AAA02 /* Notification+Extensions.swift in Sources */,
+				FF9C0AA12F0D0001000AAA01 /* FirebaseEventBackend.swift in Sources */,
 				FF1A4CE229A1A2D000000201 /* ContentView.swift in Sources */,
 				FFB0ABCD2F0CDEF100000101 /* AppDelegate.swift in Sources */,
 				FF1A4CE229A1A2D000000200 /* StepOutApp.swift in Sources */,

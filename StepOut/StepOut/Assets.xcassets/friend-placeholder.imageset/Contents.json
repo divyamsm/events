@@ -1,8 +1,9 @@
 {
   "images" : [
     {
-      "filename" : "friend-placeholder.pdf",
-      "idiom" : "universal"
+      "filename" : "friend-placeholder.png",
+      "idiom" : "universal",
+      "scale" : "1x"
     }
   ],
   "info" : {

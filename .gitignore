@@ -24,6 +24,9 @@ xcuserdata/
 .idea/
 *.code-workspace
 *.iml
+GoogleService-Info.plist
+**/GoogleService-Info.plist
+StepOut/Support/Firebase/
 
 # Swift Package Manager
 .build/
@@ -34,6 +37,21 @@ Package.resolved
 Pods/
 *.xcworkspace
 !default.xcworkspace
+
+# Firebase backend tooling
+backend/functions/node_modules/
+backend/functions/lib/
+backend/tools/node_modules/
+backend/tools/serviceaccount.json
+backend/firebase-debug.log
+backend/.firebase/
+StepOut/backend/functions/node_modules/
+StepOut/backend/functions/lib/
+StepOut/backend/tools/node_modules/
+StepOut/backend/tools/serviceaccount.json
+StepOut/backend/firebase-debug.log
+StepOut/backend/.firebase/
+firebase-debug.log
 
 # Carthage
 Carthage/Build/

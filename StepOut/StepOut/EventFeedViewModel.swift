@@ -1,5 +1,11 @@
 import Foundation
 import CoreLocation
+#if canImport(FirebaseAuth)
+import FirebaseAuth
+#endif
+#if canImport(FirebaseFunctions)
+import FirebaseFunctions
+#endif
 
 @MainActor
 final class EventFeedViewModel: ObservableObject {
@@ -48,6 +54,8 @@ final class EventFeedViewModel: ObservableObject {
     private let appState: AppState
     private var friendsCatalog: [Friend] = EventRepository.friends
     private var latestEvents: [Event] = []
+    private var authObserver: NSObjectProtocol?
+    private var isEnsuringSignIn = false
 
     var friendOptions: [Friend] {
         friendsCatalog.isEmpty ? EventRepository.friends : friendsCatalog
@@ -57,6 +65,19 @@ final class EventFeedViewModel: ObservableObject {
         self.backend = backend
         self.session = session
         self.appState = appState
+
+#if canImport(FirebaseAuth)
+        authObserver = NotificationCenter.default.addObserver(forName: .firebaseAuthDidSignIn, object: nil, queue: .main) { [weak self] _ in
+            guard let self else { return }
+            Task { await self.loadFeed() }
+        }
+#endif
+    }
+
+    deinit {
+        if let authObserver {
+            NotificationCenter.default.removeObserver(authObserver)
+        }
     }
 
     func loadFeed() async {
@@ -65,7 +86,9 @@ final class EventFeedViewModel: ObservableObject {
         defer { isLoading = false }
 
         do {
+            print("[Feed] loading feed…")
             let snapshot = try await backend.fetchFeed(for: session.user, near: session.currentLocation)
+            print("[Feed] fetched events: \(snapshot.events.count), friends: \(snapshot.friends.count)")
             friendsCatalog = snapshot.friends
 
             var combinedEvents = appState.createdEvents
@@ -90,7 +113,33 @@ final class EventFeedViewModel: ObservableObject {
 
             feedEvents = buildFeedEvents(from: latestEvents, friends: snapshot.friends)
             persistWidgetSnapshot()
+            presentError = nil
         } catch {
+#if canImport(FirebaseFunctions)
+            if let functionsError = error as NSError?, functionsError.domain == FunctionsErrorDomain,
+               functionsError.code == FunctionsErrorCode.unauthenticated.rawValue {
+#if canImport(FirebaseAuth)
+#if DEBUG
+                guard isEnsuringSignIn == false else { return }
+                isEnsuringSignIn = true
+                presentError = "Signing in…"
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    defer { self.isEnsuringSignIn = false }
+                    do {
+                        try await self.ensureDebugSignIn()
+                        await self.loadFeed()
+                    } catch {
+                        print("[Feed] debug sign-in failed: \(error.localizedDescription)")
+                        self.presentError = "Couldn't refresh events. Please try again."
+                    }
+                }
+                return
+#endif
+#endif
+            }
+#endif
+            print("[Feed] fetch failed: \(error.localizedDescription)")
             presentError = "Couldn't refresh events. Please try again."
         }
     }
@@ -137,6 +186,9 @@ final class EventFeedViewModel: ObservableObject {
     }
 
     func updateAttendance(for feedEvent: FeedEvent, going: Bool, arrivalTime: Date?) {
+        let previousAttending = appState.attendingEventIDs
+        let previousCreatedEvents = appState.createdEvents
+        let previousLatestEvents = latestEvents
         let eventID = feedEvent.event.id
 
         if going {
@@ -171,6 +223,26 @@ final class EventFeedViewModel: ObservableObject {
 
         feedEvents = buildFeedEvents(from: latestEvents, friends: friendsCatalog)
         persistWidgetSnapshot()
+
+        if let remoteBackend = backend as? FirebaseEventBackend {
+            Task { @MainActor in
+                do {
+                    try await remoteBackend.rsvp(
+                        eventID: eventID,
+                        userId: session.user.id,
+                        status: going ? "going" : "declined",
+                        arrival: arrivalTime
+                    )
+                    await loadFeed()
+                } catch {
+                    appState.attendingEventIDs = previousAttending
+                    appState.createdEvents = previousCreatedEvents
+                    latestEvents = previousLatestEvents
+                    feedEvents = buildFeedEvents(from: latestEvents, friends: friendsCatalog)
+                    presentError = "Couldn't update your RSVP. Please try again."
+                }
+            }
+        }
     }
 
     func createEvent(
@@ -186,7 +258,36 @@ final class EventFeedViewModel: ObservableObject {
         let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedLocation = location.trimmingCharacters(in: .whitespacesAndNewlines)
 
-        var event = Event(
+        if let remoteBackend = backend as? FirebaseEventBackend {
+            Task { @MainActor in
+                do {
+                    print("[Feed] createEvent payload=", [
+                        "ownerId", session.user.id,
+                        "title", trimmedTitle,
+                        "startAt", date,
+                        "location", trimmedLocation,
+                        "privacy", privacy.rawValue
+                    ])
+                    _ = try await remoteBackend.createEvent(
+                        owner: session.user,
+                        title: trimmedTitle,
+                        description: nil,
+                        startAt: date,
+                        duration: 60 * 60 * 2,
+                        location: trimmedLocation,
+                        coordinate: coordinate,
+                        privacy: privacy
+                    )
+                    await loadFeed()
+                } catch {
+                    print("[Feed] createEvent failed: \(error.localizedDescription)")
+                    presentError = "Couldn't create your event. Please try again."
+                }
+            }
+            return
+        }
+
+        let event = Event(
             title: trimmedTitle,
             date: date,
             location: trimmedLocation,
@@ -313,7 +414,11 @@ final class EventFeedViewModel: ObservableObject {
 
             let lhsDistance = lhs.distance ?? .greatestFiniteMagnitude
             let rhsDistance = rhs.distance ?? .greatestFiniteMagnitude
-            return lhsDistance < rhsDistance
+            if lhsDistance != rhsDistance {
+                return lhsDistance < rhsDistance
+            }
+
+            return lhs.event.date < rhs.event.date
         }
     }
 
@@ -331,4 +436,25 @@ final class EventFeedViewModel: ObservableObject {
             #endif
         }
     }
+
+#if canImport(FirebaseAuth)
+#if DEBUG
+    private func ensureDebugSignIn() async throws {
+        if let current = Auth.auth().currentUser,
+           current.email == "you@example.com" {
+            return
+        }
+
+        try await withCheckedThrowingContinuation { continuation in
+            Auth.auth().signIn(withEmail: "you@example.com", password: "StepOut123!") { _, error in
+                if let error {
+                    continuation.resume(throwing: error)
+                } else {
+                    continuation.resume(returning: ())
+                }
+            }
+        }
+    }
+#endif
+#endif
 }

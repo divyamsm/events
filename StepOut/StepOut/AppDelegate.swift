@@ -34,6 +34,10 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
             application.registerForRemoteNotifications()
         }
 
+#if canImport(FirebaseAuth)
+        signInDefaultUserIfNeeded()
+#endif
+
         return true
     }
 
@@ -115,4 +119,38 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
 #endif
         completionHandler()
     }
+
+#if canImport(FirebaseAuth)
+    private func signInDefaultUserIfNeeded() {
+#if DEBUG
+        let auth = Auth.auth()
+
+        if let current = auth.currentUser,
+           current.email == "you@example.com" {
+            current.getIDToken { _, error in
+                if let error {
+                    print("Developer token refresh failed: \(error.localizedDescription)")
+                }
+                NotificationCenter.default.post(name: .firebaseAuthDidSignIn, object: nil)
+            }
+            return
+        }
+
+        do {
+            try auth.signOut()
+        } catch {
+            print("Developer sign-out failed: \(error.localizedDescription)")
+        }
+
+        auth.signIn(withEmail: "you@example.com", password: "StepOut123!") { _, error in
+            if let error {
+                print("Developer sign-in failed: \(error.localizedDescription)")
+            } else {
+                print("Developer sign-in succeeded.")
+                NotificationCenter.default.post(name: .firebaseAuthDidSignIn, object: nil)
+            }
+        }
+#endif
+    }
+#endif
 }

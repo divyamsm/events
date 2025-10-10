@@ -20,13 +20,24 @@ struct ContentView: View {
         viewModel: EventFeedViewModel? = nil
     ) {
         self.appState = appState
-        _viewModel = StateObject(
-            wrappedValue: viewModel ?? EventFeedViewModel(
-                backend: MockEventBackend(),
-                session: UserSession.sample,
-                appState: appState
+
+        if let viewModel {
+            _viewModel = StateObject(wrappedValue: viewModel)
+        } else {
+            let backend: EventBackend
+#if canImport(FirebaseFunctions)
+            backend = FirebaseEventBackend()
+#else
+            backend = MockEventBackend()
+#endif
+            _viewModel = StateObject(
+                wrappedValue: EventFeedViewModel(
+                    backend: backend,
+                    session: UserSession.sample,
+                    appState: appState
+                )
             )
-        )
+        }
     }
 
     var body: some View {
