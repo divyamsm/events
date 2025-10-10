@@ -3,7 +3,18 @@ import { DocumentData, DocumentReference, DocumentSnapshot, Timestamp } from "fi
 import { randomUUID } from "crypto";
 import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { CallableRequest } from "firebase-functions/v2/https";
-import { EventCreatePayload, FeedQuery, RSVPCallPayload, eventSchema, feedQuerySchema, rsvpRequestSchema } from "./schema";
+import {
+  EventCreatePayload,
+  EventDeletePayload,
+  EventUpdatePayload,
+  FeedQuery,
+  RSVPCallPayload,
+  eventDeleteSchema,
+  eventSchema,
+  eventUpdateSchema,
+  feedQuerySchema,
+  rsvpRequestSchema
+} from "./schema";
 import { parseRequest } from "./validators";
 
 if (!admin.apps.length) {
@@ -18,6 +29,22 @@ function requireAuth<T>(request: CallableRequest<T>): string {
     throw new HttpsError("unauthenticated", "Sign-in required.");
   }
   return uid;
+}
+
+async function resolveEventDocument(
+  eventId: string,
+  variants: string[] = []
+): Promise<{ ref: DocumentReference<DocumentData>; snap: DocumentSnapshot<DocumentData>; canonicalId: string }> {
+  const candidateIds = Array.from(new Set([eventId, ...variants, eventId.toUpperCase(), eventId.toLowerCase()]));
+  for (const candidateId of candidateIds) {
+    const ref = db.collection("events").doc(candidateId);
+    const snap = await ref.get();
+    if (snap.exists) {
+      console.log("[Function] resolveEventDocument hit", { requested: eventId, candidateId, canonicalId: snap.id });
+      return { ref, snap, canonicalId: snap.id };
+    }
+  }
+  throw new HttpsError("not-found", "Event does not exist.");
 }
 
 export const createEvent = onCall(async (request) => {
@@ -172,30 +199,7 @@ export const rsvpEvent = onCall(async (request) => {
     throw new HttpsError("invalid-argument", "userId must be provided.");
   }
 
-  const candidateIds = Array.from(
-    new Set([
-      payload.eventId,
-      ...(payload.eventIdVariants ?? []),
-      payload.eventId.toUpperCase(),
-      payload.eventId.toLowerCase()
-    ])
-  );
-  let eventRef: DocumentReference<DocumentData> | null = null;
-  let eventSnap: DocumentSnapshot<DocumentData> | null = null;
-
-  for (const candidateId of candidateIds) {
-    const ref = db.collection("events").doc(candidateId);
-    const snap = await ref.get();
-    if (snap.exists) {
-      eventRef = ref;
-      eventSnap = snap;
-      break;
-    }
-  }
-
-  if (!eventRef || !eventSnap || !eventSnap.exists) {
-    throw new HttpsError("not-found", "Event does not exist.");
-  }
+  const { ref: eventRef, snap: eventSnap } = await resolveEventDocument(payload.eventId, payload.eventIdVariants);
 
   const now = Timestamp.now();
   await eventRef.collection("members").doc(uid).set(
@@ -210,4 +214,85 @@ export const rsvpEvent = onCall(async (request) => {
   );
 
   return { ok: true };
+});
+
+export const updateEvent = onCall(async (request) => {
+  const payload: EventUpdatePayload = parseRequest(eventUpdateSchema, request.data);
+  console.log("[Function] updateEvent payload", payload);
+
+  const { ref: eventRef, canonicalId } = await resolveEventDocument(payload.eventId);
+
+  const updates: Record<string, unknown> = {
+    updatedAt: Timestamp.now()
+  };
+
+  if (payload.title !== undefined) {
+    updates.title = payload.title;
+  }
+  if (payload.description !== undefined) {
+    updates.description = payload.description ?? null;
+  }
+  if (payload.startAt !== undefined && payload.endAt !== undefined) {
+    updates.startAt = Timestamp.fromDate(payload.startAt);
+    updates.endAt = Timestamp.fromDate(payload.endAt);
+  }
+  if (payload.location !== undefined) {
+    updates.location = payload.location;
+  }
+  if (payload.visibility !== undefined) {
+    updates.visibility = payload.visibility;
+  }
+  if (payload.maxGuests !== undefined) {
+    updates.maxGuests = payload.maxGuests ?? null;
+  }
+  if (payload.geo !== undefined) {
+    updates.geo = payload.geo ?? null;
+  }
+  if (payload.coverImagePath !== undefined) {
+    updates.coverImagePath = payload.coverImagePath ?? null;
+  }
+  if (payload.sharedInviteFriendIds !== undefined) {
+    const normalized = Array.from(new Set(payload.sharedInviteFriendIds.map((id) => id.toUpperCase())));
+    updates.sharedInviteFriendIds = normalized;
+  }
+
+  console.log("[Function] updateEvent applying", { canonicalId, updates });
+
+  await eventRef.set(updates, { merge: true });
+  console.log("[Function] updateEvent wrote", { eventId: canonicalId });
+  return { eventId: canonicalId, appliedKeys: Object.keys(updates) };
+});
+
+export const deleteEvent = onCall(async (request) => {
+  const rawPayload = parseRequest(eventDeleteSchema, request.data);
+  const payload: EventDeletePayload = {
+    eventId: rawPayload.eventId,
+    hardDelete: rawPayload.hardDelete ?? false
+  };
+  console.log("[Function] deleteEvent payload", payload);
+
+  const { ref: eventRef, canonicalId } = await resolveEventDocument(payload.eventId);
+  console.log("[Function] deleteEvent resolved", { eventId: canonicalId, hardDelete: payload.hardDelete });
+
+  if (payload.hardDelete) {
+    const membersSnap = await eventRef.collection("members").get();
+    const batch = db.batch();
+    membersSnap.forEach((memberDoc) => {
+      batch.delete(memberDoc.ref);
+    });
+    batch.delete(eventRef);
+    await batch.commit();
+    console.log("[Function] deleteEvent hard deleted", { eventId: canonicalId });
+    return { eventId: canonicalId, hardDelete: true };
+  }
+
+  await eventRef.set(
+    {
+      canceled: true,
+      updatedAt: Timestamp.now()
+    },
+    { merge: true }
+  );
+  console.log("[Function] deleteEvent canceled", { eventId: canonicalId });
+  return { eventId: canonicalId, hardDelete: false };
 });

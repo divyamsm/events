@@ -340,9 +340,17 @@ final class EventFeedViewModel: ObservableObject {
         let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedLocation = location.trimmingCharacters(in: .whitespacesAndNewlines)
 
-        guard appState.createdEvents.contains(where: { $0.id == id }) else { return }
+        let createdIndex = appState.createdEvents.firstIndex(where: { $0.id == id })
+        let latestIndex = latestEvents.firstIndex(where: { $0.id == id })
+        guard createdIndex != nil || latestIndex != nil else {
+            print("[Feed] updateEvent skipped — event not found in local caches")
+            return
+        }
 
-        if let createdIndex = appState.createdEvents.firstIndex(where: { $0.id == id }) {
+        let previousCreatedEvents = appState.createdEvents
+        let previousLatestEvents = latestEvents
+
+        if let createdIndex {
             appState.createdEvents[createdIndex].title = trimmedTitle
             appState.createdEvents[createdIndex].location = trimmedLocation
             appState.createdEvents[createdIndex].date = date
@@ -355,7 +363,7 @@ final class EventFeedViewModel: ObservableObject {
             }
         }
 
-        if let latestIndex = latestEvents.firstIndex(where: { $0.id == id }) {
+        if let latestIndex {
             latestEvents[latestIndex].title = trimmedTitle
             latestEvents[latestIndex].location = trimmedLocation
             latestEvents[latestIndex].date = date
@@ -370,17 +378,73 @@ final class EventFeedViewModel: ObservableObject {
 
         refreshFeeds()
         persistWidgetSnapshot()
+
+        if let remoteBackend = backend as? FirebaseEventBackend {
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                do {
+                    try await remoteBackend.updateEvent(
+                        eventID: id,
+                        title: trimmedTitle,
+                        location: trimmedLocation,
+                        startAt: date,
+                        endAt: date.addingTimeInterval(60 * 60 * 2),
+                        coordinate: coordinate,
+                        privacy: privacy,
+                        sharedInviteFriendIDs: invitedFriendIDs
+                    )
+                    await self.loadFeed()
+                } catch {
+                    print("[Feed] updateEvent failed: \(error.localizedDescription)")
+                    self.appState.createdEvents = previousCreatedEvents
+                    self.latestEvents = previousLatestEvents
+                    self.refreshFeeds()
+                    self.persistWidgetSnapshot()
+                    self.presentError = "Couldn't update the event. Please try again."
+                }
+            }
+        }
     }
 
     func deleteEvent(_ feedEvent: FeedEvent) {
         let eventID = feedEvent.event.id
 
-        guard appState.createdEvents.contains(where: { $0.id == eventID }) else { return }
+        let isCreatedLocally = appState.createdEvents.contains(where: { $0.id == eventID })
+        let existsInFeed = latestEvents.contains(where: { $0.id == eventID })
+        guard isCreatedLocally || existsInFeed else {
+            print("[Feed] deleteEvent skipped — event not found in local caches")
+            return
+        }
 
-        appState.createdEvents.removeAll { $0.id == eventID }
+        let previousCreatedEvents = appState.createdEvents
+        let previousAttending = appState.attendingEventIDs
+        let previousLatestEvents = latestEvents
+
+        if isCreatedLocally {
+            appState.createdEvents.removeAll { $0.id == eventID }
+        }
         appState.attendingEventIDs.remove(eventID)
         latestEvents.removeAll { $0.id == eventID }
         refreshFeeds()
+        persistWidgetSnapshot()
+
+        if let remoteBackend = backend as? FirebaseEventBackend {
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                do {
+                    try await remoteBackend.deleteEvent(eventID: eventID, hardDelete: false)
+                    await self.loadFeed()
+                } catch {
+                    print("[Feed] deleteEvent failed: \(error.localizedDescription)")
+                    self.appState.createdEvents = previousCreatedEvents
+                    self.appState.attendingEventIDs = previousAttending
+                    self.latestEvents = previousLatestEvents
+                    self.refreshFeeds()
+                    self.persistWidgetSnapshot()
+                    self.presentError = "Couldn't delete the event. Please try again."
+                }
+            }
+        }
     }
 
     private func buildFeedEvents(from events: [Event], friends: [Friend], ascending: Bool) -> [FeedEvent] {

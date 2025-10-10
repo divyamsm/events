@@ -20,6 +20,14 @@ export interface UserDoc {
   updatedAt: Timestamp;
 }
 
+const geoSchema = z
+  .object({
+    lat: z.number().min(-90).max(90),
+    lng: z.number().min(-180).max(180)
+  })
+  .nullable()
+  .optional();
+
 export const eventSchema = z.object({
   ownerId: z.string().min(1),
   title: z.string().min(1).max(120),
@@ -29,17 +37,68 @@ export const eventSchema = z.object({
   location: z.string().min(1).max(180),
   visibility: z.enum(visibilityValues),
   maxGuests: z.number().int().positive().optional().nullable(),
-  geo: z
-    .object({
-      lat: z.number().min(-90).max(90),
-      lng: z.number().min(-180).max(180)
-    })
-    .optional()
-    .nullable(),
+  geo: geoSchema,
   coverImagePath: z.string().optional().nullable()
 });
 
 export type EventCreatePayload = z.infer<typeof eventSchema>;
+
+export const eventUpdateSchema = z
+  .object({
+    eventId: z.string().min(1),
+    title: z.string().min(1).max(120).optional(),
+    description: z.string().max(4000).optional().nullable(),
+    startAt: z.coerce.date().optional(),
+    endAt: z.coerce.date().optional(),
+    location: z.string().min(1).max(180).optional(),
+    visibility: z.enum(visibilityValues).optional(),
+    maxGuests: z.number().int().positive().optional().nullable(),
+    geo: geoSchema,
+    coverImagePath: z.string().optional().nullable(),
+    sharedInviteFriendIds: z.array(z.string().min(1)).optional()
+  })
+  .superRefine((value, ctx) => {
+    const mutableKeys: Array<keyof typeof value> = [
+      "title",
+      "description",
+      "startAt",
+      "endAt",
+      "location",
+      "visibility",
+      "maxGuests",
+      "geo",
+      "coverImagePath",
+      "sharedInviteFriendIds"
+    ];
+    const hasUpdate = mutableKeys.some((key) => value[key] !== undefined);
+    if (!hasUpdate) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "At least one field must be provided to update."
+      });
+    }
+    if ((value.startAt && !value.endAt) || (!value.startAt && value.endAt)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "startAt and endAt must be provided together."
+      });
+    }
+    if (value.startAt && value.endAt && value.endAt <= value.startAt) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "endAt must be after startAt."
+      });
+    }
+  });
+
+export type EventUpdatePayload = z.infer<typeof eventUpdateSchema>;
+
+export const eventDeleteSchema = z.object({
+  eventId: z.string().min(1),
+  hardDelete: z.boolean().default(false)
+});
+
+export type EventDeletePayload = z.infer<typeof eventDeleteSchema>;
 
 export interface EventDoc {
   ownerId: string;

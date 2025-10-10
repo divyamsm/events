@@ -109,6 +109,69 @@ final class FirebaseEventBackend: EventBackend {
         _ = try await callable.call(payload)
     }
 
+    func updateEvent(
+        eventID: UUID,
+        title: String,
+        location: String,
+        startAt: Date,
+        endAt: Date,
+        coordinate: CLLocationCoordinate2D?,
+        privacy: Event.Privacy,
+        sharedInviteFriendIDs: [UUID]
+    ) async throws {
+        let callable = functions.httpsCallable("updateEvent")
+        let canonicalID = eventIdentifierMap[eventID] ?? eventID.uuidString.uppercased()
+
+        var payload: [String: Any] = [
+            "eventId": canonicalID,
+            "title": title,
+            "location": location,
+            "visibility": privacy == .public ? "public" : "invite-only",
+            "startAt": ISO8601DateFormatter().string(from: startAt),
+            "endAt": ISO8601DateFormatter().string(from: endAt),
+            "sharedInviteFriendIds": sharedInviteFriendIDs.map { $0.uuidString.uppercased() }
+        ]
+
+        payload["geo"] = coordinate.map {
+            [
+                "lat": $0.latitude,
+                "lng": $0.longitude
+            ]
+        } ?? NSNull()
+
+        print("[Backend] calling updateEvent", payload)
+        let result = try await callable.call(payload)
+        print("[Backend] updateEvent response", result.data ?? "nil")
+        if
+            let response = result.data as? [String: Any],
+            let eventIdString = response["eventId"] as? String,
+            let updatedID = UUID(uuidString: eventIdString)
+        {
+            eventIdentifierMap[updatedID] = eventIdString.uppercased()
+        }
+    }
+
+    func deleteEvent(eventID: UUID, hardDelete: Bool = false) async throws {
+        let callable = functions.httpsCallable("deleteEvent")
+        let canonicalID = eventIdentifierMap[eventID] ?? eventID.uuidString.uppercased()
+        let payload: [String: Any] = [
+            "eventId": canonicalID,
+            "hardDelete": hardDelete
+        ]
+        print("[Backend] calling deleteEvent", payload)
+        let result = try await callable.call(payload)
+        print("[Backend] deleteEvent response", result.data ?? "nil")
+        if hardDelete {
+            eventIdentifierMap.removeValue(forKey: eventID)
+        } else if
+            let response = result.data as? [String: Any],
+            let eventIdString = response["eventId"] as? String,
+            let updatedID = UUID(uuidString: eventIdString)
+        {
+            eventIdentifierMap[updatedID] = eventIdString.uppercased()
+        }
+    }
+
     private func parseFriends(from value: Any?) -> [Friend] {
         guard let array = value as? [[String: Any]] else { return [] }
         return array.compactMap { dict in
