@@ -1,5 +1,6 @@
 import Foundation
 import CoreLocation
+import SwiftUI
 #if canImport(FirebaseAuth)
 import FirebaseAuth
 #endif
@@ -48,6 +49,13 @@ final class EventFeedViewModel: ObservableObject {
     @Published var shareContext: ShareContext?
     @Published var presentError: String?
     @Published var shareConfirmation: String?
+    @Published var creationSuccess: Bool = false
+    @Published private(set) var pastFeedEvents: [FeedEvent] = []
+    @Published var showAllPastEvents: Bool = false
+
+    var visiblePastFeedEvents: [FeedEvent] {
+        showAllPastEvents ? pastFeedEvents : Array(pastFeedEvents.prefix(5))
+    }
 
     private let backend: EventBackend
     private let session: UserSession
@@ -111,7 +119,7 @@ final class EventFeedViewModel: ObservableObject {
 
             appState.createdEvents = latestEvents.filter { createdIDs.contains($0.id) }
 
-            feedEvents = buildFeedEvents(from: latestEvents, friends: snapshot.friends)
+            refreshFeeds()
             persistWidgetSnapshot()
             presentError = nil
         } catch {
@@ -168,7 +176,7 @@ final class EventFeedViewModel: ObservableObject {
                 latestEvents[latestIndex].sharedInviteFriendIDs = Array(Set(latestEvents[latestIndex].sharedInviteFriendIDs + ids))
             }
 
-            feedEvents = buildFeedEvents(from: latestEvents, friends: friendsCatalog)
+            refreshFeeds()
             persistWidgetSnapshot()
             shareConfirmation = "Sent to \(recipients.count) friend\(recipients.count == 1 ? "" : "s")"
             shareContext = nil
@@ -221,24 +229,33 @@ final class EventFeedViewModel: ObservableObject {
             applyUpdates(to: &latestEvents[index])
         }
 
-        feedEvents = buildFeedEvents(from: latestEvents, friends: friendsCatalog)
+        refreshFeeds()
         persistWidgetSnapshot()
 
         if let remoteBackend = backend as? FirebaseEventBackend {
             Task { @MainActor in
                 do {
+                    let backendIdentifier = feedEvent.event.backendIdentifier
+                    print("[Feed] rsvp payload=", [
+                        "eventId", backendIdentifier ?? eventID.uuidString,
+                        "userId", session.user.id,
+                        "status", going ? "going" : "declined",
+                        "arrival", arrivalTime as Any
+                    ])
                     try await remoteBackend.rsvp(
                         eventID: eventID,
+                        backendIdentifier: backendIdentifier,
                         userId: session.user.id,
                         status: going ? "going" : "declined",
                         arrival: arrivalTime
                     )
                     await loadFeed()
                 } catch {
+                    print("[Feed] rsvp failed: \(error.localizedDescription)")
                     appState.attendingEventIDs = previousAttending
                     appState.createdEvents = previousCreatedEvents
                     latestEvents = previousLatestEvents
-                    feedEvents = buildFeedEvents(from: latestEvents, friends: friendsCatalog)
+                    refreshFeeds()
                     presentError = "Couldn't update your RSVP. Please try again."
                 }
             }
@@ -279,6 +296,7 @@ final class EventFeedViewModel: ObservableObject {
                         privacy: privacy
                     )
                     await loadFeed()
+                    self.showCreationToast()
                 } catch {
                     print("[Feed] createEvent failed: \(error.localizedDescription)")
                     presentError = "Couldn't create your event. Please try again."
@@ -293,6 +311,7 @@ final class EventFeedViewModel: ObservableObject {
             location: trimmedLocation,
             imageURL: imageURL,
             coordinate: coordinate,
+            ownerId: session.user.id,
             attendingFriendIDs: [session.user.id],
             sharedInviteFriendIDs: invitedFriendIDs,
             privacy: privacy,
@@ -303,8 +322,9 @@ final class EventFeedViewModel: ObservableObject {
         appState.createdEvents.insert(event, at: 0)
         appState.attendingEventIDs.insert(event.id)
         latestEvents.insert(event, at: 0)
-        feedEvents = buildFeedEvents(from: latestEvents, friends: friendsCatalog)
+        refreshFeeds()
         persistWidgetSnapshot()
+        showCreationToast()
     }
 
     func updateEvent(
@@ -348,7 +368,7 @@ final class EventFeedViewModel: ObservableObject {
             }
         }
 
-        feedEvents = buildFeedEvents(from: latestEvents, friends: friendsCatalog)
+        refreshFeeds()
         persistWidgetSnapshot()
     }
 
@@ -360,10 +380,10 @@ final class EventFeedViewModel: ObservableObject {
         appState.createdEvents.removeAll { $0.id == eventID }
         appState.attendingEventIDs.remove(eventID)
         latestEvents.removeAll { $0.id == eventID }
-        feedEvents = buildFeedEvents(from: latestEvents, friends: friendsCatalog)
+        refreshFeeds()
     }
 
-    private func buildFeedEvents(from events: [Event], friends: [Friend]) -> [FeedEvent] {
+    private func buildFeedEvents(from events: [Event], friends: [Friend], ascending: Bool) -> [FeedEvent] {
         let createdIDs = Set(appState.createdEvents.map { $0.id })
 
         let visibleEvents = events.filter { event in
@@ -397,19 +417,14 @@ final class EventFeedViewModel: ObservableObject {
                 distance: distance,
                 isAttending: isAttending,
                 attendingCount: attendingCount,
-                isEditable: createdIDs.contains(event.id),
+                isEditable: (event.ownerId == session.user.id) || createdIDs.contains(event.id),
                 myArrivalTime: event.arrivalTimes[session.user.id]
             )
         }
 
         return enriched.sorted { lhs, rhs in
-            let lhsCreated = createdIDs.contains(lhs.event.id)
-            let rhsCreated = createdIDs.contains(rhs.event.id)
-            if lhsCreated != rhsCreated {
-                return lhsCreated
-            }
-            if lhs.isInvite != rhs.isInvite {
-                return lhs.isInvite
+            if lhs.event.date != rhs.event.date {
+                return ascending ? lhs.event.date < rhs.event.date : lhs.event.date > rhs.event.date
             }
 
             let lhsDistance = lhs.distance ?? .greatestFiniteMagnitude
@@ -418,7 +433,33 @@ final class EventFeedViewModel: ObservableObject {
                 return lhsDistance < rhsDistance
             }
 
-            return lhs.event.date < rhs.event.date
+            return lhs.event.id.uuidString < rhs.event.id.uuidString
+        }
+    }
+
+    private func showCreationToast() {
+        withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
+            creationSuccess = true
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) { [weak self] in
+            guard let self else { return }
+            withAnimation(.easeInOut(duration: 0.25)) {
+                self.creationSuccess = false
+            }
+        }
+    }
+
+    private func refreshFeeds() {
+        let now = Date()
+        let upcomingEvents = latestEvents.filter { $0.date >= now }
+        let pastEvents = latestEvents.filter { $0.date < now }
+
+        feedEvents = buildFeedEvents(from: upcomingEvents, friends: friendsCatalog, ascending: true)
+        pastFeedEvents = buildFeedEvents(from: pastEvents, friends: friendsCatalog, ascending: false)
+        if pastFeedEvents.count <= 5 {
+            showAllPastEvents = true
+        } else if pastFeedEvents.count > 5 {
+            // keep user's toggle state
         }
     }
 

@@ -29,11 +29,7 @@ service cloud.firestore {
 
       match /members/{memberId} {
         allow read: if true;
-
-        allow create, update: if isSignedIn()
-          && (memberId == request.auth.uid
-            || isOwner(get(/databases/$(database)/documents/events/$(eventId)).data.ownerId));
-
+        allow create, update: if true;
         allow delete: if false;
       }
     }

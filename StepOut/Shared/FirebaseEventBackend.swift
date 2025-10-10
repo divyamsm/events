@@ -7,6 +7,7 @@ import FirebaseFunctions
 final class FirebaseEventBackend: EventBackend {
 #if canImport(FirebaseFunctions)
     private let functions: Functions
+    private var eventIdentifierMap: [UUID: String] = [:]
 
     init(functions: Functions = Functions.functions()) {
         self.functions = functions
@@ -82,15 +83,26 @@ final class FirebaseEventBackend: EventBackend {
         else {
             throw NSError(domain: "FirebaseEventBackend", code: -3, userInfo: [NSLocalizedDescriptionKey: "Invalid createEvent response"])
         }
+        eventIdentifierMap[eventId] = eventIdString.uppercased()
         return eventId
     }
 
-    func rsvp(eventID: UUID, userId: UUID, status: String, arrival: Date?) async throws {
+    func rsvp(eventID: UUID, backendIdentifier: String?, userId: UUID, status: String, arrival: Date?) async throws {
         let callable = functions.httpsCallable("rsvpEvent")
+        let canonicalID = (backendIdentifier ?? eventIdentifierMap[eventID] ?? eventID.uuidString).uppercased()
         var payload: [String: Any] = [
-            "eventId": eventID.uuidString,
-            "status": status
+            "eventId": canonicalID,
+            "status": status,
+            "userId": userId.uuidString
         ]
+        payload["eventIdVariants"] = Array(
+            Set(
+                [
+                    canonicalID.uppercased(),
+                    canonicalID.lowercased()
+                ].filter { $0 != canonicalID }
+            )
+        )
         if let arrival {
             payload["arrivalAt"] = ISO8601DateFormatter().string(from: arrival)
         }
@@ -103,6 +115,8 @@ final class FirebaseEventBackend: EventBackend {
             guard let idString = dict["id"] as? String, let uuid = UUID(uuidString: idString) else {
                 return nil
             }
+            let canonical = idString.uppercased()
+            eventIdentifierMap[uuid] = canonical
             let name = dict["displayName"] as? String ?? "Friend"
             let avatarURL: URL?
             if let photoString = dict["photoURL"] as? String {
@@ -127,6 +141,8 @@ final class FirebaseEventBackend: EventBackend {
             else {
                 return nil
             }
+            let canonical = idString.uppercased()
+            eventIdentifierMap[uuid] = canonical
 
             let startMillis = dict["startAt"] as? TimeInterval
             let date = startMillis.map { Date(timeIntervalSince1970: $0 / 1000) } ?? Date()
@@ -173,12 +189,14 @@ final class FirebaseEventBackend: EventBackend {
                 location: location,
                 imageURL: imageURL,
                 coordinate: coordinate,
+                ownerId: UUID(uuidString: dict["ownerId"] as? String ?? ""),
                 attendingFriendIDs: attendingIDs,
                 invitedByFriendIDs: invitedByIDs,
                 sharedInviteFriendIDs: sharedInviteIDs,
                 privacy: privacy,
                 localImageData: nil,
-                arrivalTimes: arrivalTimes
+                arrivalTimes: arrivalTimes,
+                backendIdentifier: canonical
             )
         }
     }

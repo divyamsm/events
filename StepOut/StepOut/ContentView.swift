@@ -14,6 +14,13 @@ struct ContentView: View {
     @State private var deleteTarget: EventFeedViewModel.FeedEvent?
     @State private var showAttendanceSheet: EventFeedViewModel.FeedEvent?
     @State private var pendingRSVP: EventFeedViewModel.FeedEvent?
+    @State private var selectedFeedTab: FeedTab = .upcoming
+
+
+    private enum FeedTab: String, CaseIterable {
+        case upcoming = "Upcoming"
+        case past = "Past"
+    }
 
     init(
         appState: AppState,
@@ -21,7 +28,7 @@ struct ContentView: View {
     ) {
         self.appState = appState
 
-        if let viewModel {
+        if let viewModel = viewModel {
             _viewModel = StateObject(wrappedValue: viewModel)
         } else {
             let backend: EventBackend
@@ -42,92 +49,30 @@ struct ContentView: View {
 
     var body: some View {
         NavigationStack {
-            ZStack {
-                Color(.systemBackground)
-                    .ignoresSafeArea()
-
-                if viewModel.feedEvents.isEmpty && viewModel.isLoading {
-                    ProgressView("Loading events...")
-                        .progressViewStyle(.circular)
-                } else {
-                    GeometryReader { proxy in
-                        let containerHeight = proxy.size.height
-                        let cardHeight = containerHeight * 0.78
-
-                        Group {
-                            if #available(iOS 17.0, *) {
-                                ScrollView(.vertical, showsIndicators: false) {
-                                    LazyVStack(spacing: 0) {
-                                        ForEach(viewModel.feedEvents) { feedEvent in
-                                            VStack {
-                                                Spacer(minLength: 0)
-                                                EventCardView(
-                                                    feedEvent: feedEvent,
-                                                    shareAction: {
-                                                        viewModel.beginShare(for: feedEvent)
-                                                    },
-                                                    rsvpAction: {
-                                                        if feedEvent.isAttending {
-                                                            viewModel.updateAttendance(for: feedEvent, going: false, arrivalTime: nil)
-                                                        } else {
-                                                            pendingRSVP = feedEvent
-                                                        }
-                                                    },
-                                                    editAction: feedEvent.isEditable ? {
-                                                        editingEvent = feedEvent
-                                                    } : nil,
-                                                    deleteAction: feedEvent.isEditable ? {
-                                                        deleteTarget = feedEvent
-                                                    } : nil,
-                                                    showAllAttendees: feedEvent.badges.count > 2 ? {
-                                                        showAttendanceSheet = feedEvent
-                                                    } : nil
-                                                )
-                                                .frame(height: cardHeight)
-                                                .padding(.horizontal, 24)
-                                                Spacer(minLength: 0)
-                                            }
-                                            .frame(height: containerHeight)
-                                        }
-                                    }
-                                }
-                                .scrollTargetBehavior(.paging)
-                            } else {
-                                VerticalCarouselFallback(
-                                    feedEvents: viewModel.feedEvents,
-                                    containerSize: proxy.size,
-                                    shareTapped: { feedEvent in
-                                        viewModel.beginShare(for: feedEvent)
-                                    },
-                                    rsvpTapped: { feedEvent in
-                                        if feedEvent.isAttending {
-                                            viewModel.updateAttendance(for: feedEvent, going: false, arrivalTime: nil)
-                                        } else {
-                                            pendingRSVP = feedEvent
-                                        }
-                                    },
-                                    editTapped: { feedEvent in
-                                        if feedEvent.isEditable {
-                                            editingEvent = feedEvent
-                                        }
-                                    },
-                                    deleteTapped: { feedEvent in
-                                        if feedEvent.isEditable {
-                                            deleteTarget = feedEvent
-                                        }
-                                    },
-                                    showAllTapped: { feedEvent in
-                                        showAttendanceSheet = feedEvent
-                                    }
-                                )
-                            }
-                        }
+            VStack(spacing: 16) {
+                Picker("Event Filter", selection: $selectedFeedTab) {
+                    ForEach(FeedTab.allCases, id: \.self) { tab in
+                        Text(tab.rawValue).tag(tab)
                     }
                 }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .padding(.horizontal, 20)
+                .padding(.top, 12)
+
+                Group {
+                    if selectedFeedTab == .upcoming {
+                        upcomingFeed
+                    } else {
+                        pastFeed
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-            .navigationTitle("Upcoming Events")
+            .background(Color(.systemBackground).ignoresSafeArea())
+            .navigationTitle(selectedFeedTab == .upcoming ? "Upcoming Events" : "Past Events")
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
+                ToolbarItem(placement: .navigationBarLeading) {
                     Button {
                         showingCreateEvent = true
                     } label: {
@@ -136,7 +81,7 @@ struct ContentView: View {
                     }
                     .accessibilityLabel("Create event")
                 }
-                ToolbarItem(placement: .topBarTrailing) {
+                ToolbarItem(placement: .navigationBarTrailing) {
                     NavigationLink {
                         ProfileView()
                             .environmentObject(appState)
@@ -148,23 +93,15 @@ struct ContentView: View {
                 }
             }
         }
-        .task {
-            await viewModel.loadFeed()
-        }
-        .refreshable {
-            await viewModel.loadFeed()
-        }
+        .task { await viewModel.loadFeed() }
+        .refreshable { await viewModel.loadFeed() }
         .sheet(item: $viewModel.shareContext) { context in
             ShareEventSheet(
                 context: context,
                 onSend: { recipients in
-                    Task {
-                        await viewModel.completeShare(for: context.feedEvent, to: recipients)
-                    }
+                    Task { await viewModel.completeShare(for: context.feedEvent, to: recipients) }
                 },
-                onCancel: {
-                    viewModel.shareContext = nil
-                }
+                onCancel: { viewModel.shareContext = nil }
             )
         }
         .sheet(isPresented: $showingCreateEvent) {
@@ -234,15 +171,170 @@ struct ContentView: View {
             alertContext = AlertContext(title: "Shared", message: message)
             viewModel.shareConfirmation = nil
         }
+        .overlay(alignment: .top) {
+            SuccessToast(text: "Event created!")
+                .opacity(viewModel.creationSuccess ? 1 : 0)
+                .offset(y: viewModel.creationSuccess ? 16 : -80)
+                .animation(.spring(response: 0.4, dampingFraction: 0.8), value: viewModel.creationSuccess)
+                .padding(.top, 12)
+        }
+    }
+
+    @ViewBuilder
+    private var upcomingFeed: some View {
+        if viewModel.feedEvents.isEmpty && viewModel.isLoading {
+            VStack {
+                Spacer()
+                ProgressView("Loading events...")
+                    .progressViewStyle(.circular)
+                Spacer()
+            }
+        } else {
+            GeometryReader { proxy in
+                let containerHeight = proxy.size.height
+                let cardHeight = containerHeight * 0.78
+
+                Group {
+                    if #available(iOS 17.0, *) {
+                        ScrollView(.vertical, showsIndicators: false) {
+                            LazyVStack(spacing: 0) {
+                                ForEach(viewModel.feedEvents) { feedEvent in
+                                    VStack {
+                                        Spacer(minLength: 0)
+                                        EventCardView(
+                                            feedEvent: feedEvent,
+                                            shareAction: {
+                                                viewModel.beginShare(for: feedEvent)
+                                            },
+                                            rsvpAction: {
+                                                if feedEvent.isAttending {
+                                                    viewModel.updateAttendance(for: feedEvent, going: false, arrivalTime: nil)
+                                                } else {
+                                                    pendingRSVP = feedEvent
+                                                }
+                                            },
+                                            editAction: feedEvent.isEditable ? {
+                                                editingEvent = feedEvent
+                                            } : nil,
+                                            deleteAction: feedEvent.isEditable ? {
+                                                deleteTarget = feedEvent
+                                            } : nil,
+                                            showAllAttendees: feedEvent.badges.count > 2 ? {
+                                                showAttendanceSheet = feedEvent
+                                            } : nil
+                                        )
+                                        .frame(height: cardHeight)
+                                        .padding(.horizontal, 24)
+                                        Spacer(minLength: 0)
+                                    }
+                                    .frame(height: containerHeight)
+                                }
+                            }
+                        }
+                        .scrollTargetBehavior(.paging)
+                    } else {
+                        VerticalCarouselFallback(
+                            feedEvents: viewModel.feedEvents,
+                            containerSize: proxy.size,
+                            shareTapped: { feedEvent in
+                                viewModel.beginShare(for: feedEvent)
+                            },
+                            rsvpTapped: { feedEvent in
+                                if feedEvent.isAttending {
+                                    viewModel.updateAttendance(for: feedEvent, going: false, arrivalTime: nil)
+                                } else {
+                                    pendingRSVP = feedEvent
+                                }
+                            },
+                            editTapped: { feedEvent in
+                                if feedEvent.isEditable {
+                                    editingEvent = feedEvent
+                                }
+                            },
+                            deleteTapped: { feedEvent in
+                                if feedEvent.isEditable {
+                                    deleteTarget = feedEvent
+                                }
+                            },
+                            showAllTapped: { feedEvent in
+                                showAttendanceSheet = feedEvent
+                            }
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var pastFeed: some View {
+        if viewModel.visiblePastFeedEvents.isEmpty {
+            VStack(spacing: 12) {
+                Spacer()
+                Text("No past events yet.")
+                    .foregroundStyle(.secondary)
+                Spacer()
+            }
+        } else {
+            ScrollView {
+                LazyVStack(spacing: 16) {
+                    ForEach(viewModel.visiblePastFeedEvents) { feedEvent in
+                        PastEventRow(feedEvent: feedEvent)
+                    }
+
+                    if viewModel.pastFeedEvents.count > 5 {
+                        Button(viewModel.showAllPastEvents ? "Show Less" : "Show More") {
+                            withAnimation {
+                                viewModel.showAllPastEvents.toggle()
+                            }
+                        }
+                        .padding(.vertical, 12)
+                    }
+                }
+                .padding(.horizontal, 20)
+                .padding(.top, 12)
+                .padding(.bottom, 24)
+            }
+        }
     }
 }
 
-#Preview {
-    let appState = AppState()
-    appState.isOnboarded = true
-    return ContentView(appState: appState)
-        .environmentObject(appState)
+struct ContentView_Previews: PreviewProvider {
+    static var previews: some View {
+        let appState = AppState()
+        appState.isOnboarded = true
+        return ContentView(appState: appState)
+            .environmentObject(appState)
+    }
 }
+
+private struct PastEventRow: View {
+    let feedEvent: EventFeedViewModel.FeedEvent
+
+    private static let dateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .short
+        return formatter
+    }()
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(feedEvent.event.title)
+                .font(.headline)
+            Text(feedEvent.event.location)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+            Text(Self.dateFormatter.string(from: feedEvent.event.date))
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+    }
+}
+
 
 private struct AlertContext: Identifiable {
     let id = UUID()
@@ -317,7 +409,7 @@ private struct EventCardView: View {
             .shadow(color: .black.opacity(0.25), radius: 16, x: 0, y: 12)
             .overlay(alignment: .topTrailing) {
                 VStack(alignment: .trailing, spacing: 12) {
-                    if let editAction, let deleteAction {
+                    if let editAction = editAction, let deleteAction = deleteAction {
                         Menu {
                             Button("Edit", action: editAction)
                             Button("Delete", role: .destructive, action: deleteAction)
@@ -519,7 +611,7 @@ private struct FriendAvatarRow: View {
                     FriendBadgeView(badge: badge)
                 }
 
-                if badges.count > 2, let onShowAll {
+                if badges.count > 2, let onShowAll = onShowAll {
                     Button(action: onShowAll) {
                         HStack(spacing: 6) {
                             Image(systemName: "person.3.fill")
@@ -800,13 +892,13 @@ private struct RSVPArrivalSheet: View {
             .navigationTitle("Confirm arrival")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
+                ToolbarItem(placement: .navigationBarLeading) {
                     Button("Cancel") {
                         onCancel()
                         dismiss()
                     }
                 }
-                ToolbarItem(placement: .topBarTrailing) {
+                ToolbarItem(placement: .navigationBarTrailing) {
                     Button("Done") {
                         confirm()
                     }
@@ -1086,7 +1178,7 @@ private struct CreateEventView: View {
                     Button("Open in Google Maps") {
                         openInGoogleMaps()
                     }
-                    if let coordinate {
+                    if let coordinate = coordinate {
                         Map(
                             coordinateRegion: Binding(
                                 get: {
@@ -1108,7 +1200,7 @@ private struct CreateEventView: View {
                 Section(header: Text("Appearance")) {
                     PhotosPicker(selection: $photoItem, matching: .images) {
                         HStack {
-                            if let imageData, let image = UIImage(data: imageData) {
+                            if let imageData = imageData, let image = UIImage(data: imageData) {
                                 Image(uiImage: image)
                                     .resizable()
                                     .scaledToFill()
@@ -1140,10 +1232,10 @@ private struct CreateEventView: View {
             .navigationTitle("New Event")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
+                ToolbarItem(placement: .navigationBarLeading) {
                     Button("Cancel") { dismiss() }
                 }
-                ToolbarItem(placement: .topBarTrailing) {
+                ToolbarItem(placement: .navigationBarTrailing) {
                     Button("Create") { createEvent() }
                         .disabled(!isValid)
                 }
@@ -1163,7 +1255,7 @@ private struct CreateEventView: View {
 
     @ViewBuilder
     private var lookupFooter: some View {
-        if let lookupStatus {
+        if let lookupStatus = lookupStatus {
             Text(lookupStatus)
         } else {
             Text("Use the options above to confirm the exact spot in Maps.")
@@ -1206,7 +1298,7 @@ private struct CreateEventView: View {
     }
 
     private func loadImageData(from item: PhotosPickerItem?) async -> Data? {
-        guard let item else { return nil }
+        guard let item = item else { return nil }
         return try? await item.loadTransferable(type: Data.self)
     }
 }
@@ -1263,7 +1355,7 @@ private struct EditEventView: View {
                     Button("Open in Google Maps") {
                         openInGoogleMaps()
                     }
-                    if let coordinate {
+                    if let coordinate = coordinate {
                         Map(
                             coordinateRegion: Binding(
                                 get: {
@@ -1327,10 +1419,10 @@ private struct EditEventView: View {
             .navigationTitle("Edit Event")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
+                ToolbarItem(placement: .navigationBarLeading) {
                     Button("Cancel") { dismiss() }
                 }
-                ToolbarItem(placement: .topBarTrailing) {
+                ToolbarItem(placement: .navigationBarTrailing) {
                     Button("Save") { saveChanges() }
                         .disabled(!isValid)
                 }
@@ -1350,7 +1442,7 @@ private struct EditEventView: View {
 
     @ViewBuilder
     private var lookupFooter: some View {
-        if let lookupStatus {
+        if let lookupStatus = lookupStatus {
             Text(lookupStatus)
         } else {
             Text("Confirm the location using Maps if needed.")
@@ -1396,7 +1488,7 @@ private struct EditEventView: View {
     }
 
     private func loadImageData(from item: PhotosPickerItem?) async -> Data? {
-        guard let item else { return nil }
+        guard let item = item else { return nil }
         return try? await item.loadTransferable(type: Data.self)
     }
 }
@@ -1658,5 +1750,19 @@ private struct ShareTargetView: View {
         case .friend(let friend):
             return friend.name.components(separatedBy: " ").first ?? friend.name
         }
+    }
+}
+
+private struct SuccessToast: View {
+    let text: String
+
+    var body: some View {
+        Text(text)
+            .font(.headline.weight(.semibold))
+            .padding(.horizontal, 20)
+            .padding(.vertical, 12)
+            .background(.ultraThinMaterial, in: Capsule())
+            .shadow(radius: 6, y: 4)
+            .allowsHitTesting(false)
     }
 }

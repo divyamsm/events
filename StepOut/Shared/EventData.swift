@@ -43,12 +43,14 @@ struct Event: Identifiable, Hashable {
     var location: String
     var imageURL: URL
     var coordinate: CLLocationCoordinate2D?
+    var ownerId: UUID?
     var attendingFriendIDs: [UUID]
     var invitedByFriendIDs: [UUID]
     var sharedInviteFriendIDs: [UUID]
     var privacy: Privacy
     var localImageData: Data?
     var arrivalTimes: [UUID: Date]
+    var backendIdentifier: String?
 
     init(
         id: UUID = UUID(),
@@ -57,12 +59,14 @@ struct Event: Identifiable, Hashable {
         location: String,
         imageURL: URL,
         coordinate: CLLocationCoordinate2D? = nil,
+        ownerId: UUID? = nil,
         attendingFriendIDs: [UUID] = [],
         invitedByFriendIDs: [UUID] = [],
         sharedInviteFriendIDs: [UUID] = [],
         privacy: Privacy = .public,
         localImageData: Data? = nil,
-        arrivalTimes: [UUID: Date] = [:]
+        arrivalTimes: [UUID: Date] = [:],
+        backendIdentifier: String? = nil
     ) {
         self.id = id
         self.title = title
@@ -70,12 +74,14 @@ struct Event: Identifiable, Hashable {
         self.location = location
         self.imageURL = imageURL
         self.coordinate = coordinate
+        self.ownerId = ownerId
         self.attendingFriendIDs = attendingFriendIDs
         self.invitedByFriendIDs = invitedByFriendIDs
         self.sharedInviteFriendIDs = sharedInviteFriendIDs
         self.privacy = privacy
         self.localImageData = localImageData
         self.arrivalTimes = arrivalTimes
+        self.backendIdentifier = backendIdentifier
     }
     static func == (lhs: Event, rhs: Event) -> Bool {
         lhs.id == rhs.id
@@ -149,6 +155,7 @@ enum EventRepository {
             location: "San Francisco, CA",
             imageURL: URL(string: "https://images.unsplash.com/photo-1521737604893-d14cc237f11d?auto=format&fit=crop&w=1400&q=80")!,
             coordinate: CLLocationCoordinate2D(latitude: 37.776_321, longitude: -122.417_864),
+            ownerId: friendDisha.id,
             attendingFriendIDs: [friendDisha.id, friendDivyam.id],
             invitedByFriendIDs: [friendShreyas.id],
             arrivalTimes: [
@@ -163,6 +170,7 @@ enum EventRepository {
             location: "Remote",
             imageURL: URL(string: "https://images.unsplash.com/photo-1522202176988-66273c2fd55f?auto=format&fit=crop&w=1400&q=80")!,
             coordinate: nil,
+            ownerId: friendMaya.id,
             attendingFriendIDs: [friendMaya.id],
             invitedByFriendIDs: [],
             arrivalTimes: [
@@ -176,6 +184,7 @@ enum EventRepository {
             location: "New York, NY",
             imageURL: URL(string: "https://images.unsplash.com/photo-1545239351-1141bd82e8a6?auto=format&fit=crop&w=1400&q=80")!,
             coordinate: CLLocationCoordinate2D(latitude: 40.7128, longitude: -74.006),
+            ownerId: friendJordan.id,
             attendingFriendIDs: [friendJordan.id],
             invitedByFriendIDs: [],
             sharedInviteFriendIDs: [currentUser.id],
