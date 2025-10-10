@@ -72,11 +72,13 @@ export const rsvpRequestSchema = z
     eventId: z.string().min(1),
     status: z.enum(eventStatusValues).default("going"),
     arrivalAt: z.string().datetime({ offset: true }).optional().nullable(),
-    userId: z.string().optional()
+    userId: z.string().optional(),
+    eventIdVariants: z.array(z.string().min(1)).optional()
   })
   .transform((value) => ({
     ...value,
-    status: value.status ?? "going"
+    status: value.status ?? "going",
+    eventIdVariants: value.eventIdVariants ?? []
   }));
 
 export type RSVPCallPayload = z.infer<typeof rsvpRequestSchema>;

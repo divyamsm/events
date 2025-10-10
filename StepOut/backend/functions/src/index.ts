@@ -1,5 +1,5 @@
 import * as admin from "firebase-admin";
-import { Timestamp } from "firebase-admin/firestore";
+import { DocumentData, DocumentReference, DocumentSnapshot, Timestamp } from "firebase-admin/firestore";
 import { randomUUID } from "crypto";
 import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { CallableRequest } from "firebase-functions/v2/https";
@@ -33,7 +33,7 @@ export const createEvent = onCall(async (request) => {
   }
 
   const now = Timestamp.now();
-  const eventId = randomUUID();
+  const eventId = randomUUID().toUpperCase();
   const eventRef = db.collection("events").doc(eventId);
   const eventDoc = {
     ownerId: uid,
@@ -172,9 +172,28 @@ export const rsvpEvent = onCall(async (request) => {
     throw new HttpsError("invalid-argument", "userId must be provided.");
   }
 
-  const eventRef = db.collection("events").doc(payload.eventId);
-  const eventSnap = await eventRef.get();
-  if (!eventSnap.exists) {
+  const candidateIds = Array.from(
+    new Set([
+      payload.eventId,
+      ...(payload.eventIdVariants ?? []),
+      payload.eventId.toUpperCase(),
+      payload.eventId.toLowerCase()
+    ])
+  );
+  let eventRef: DocumentReference<DocumentData> | null = null;
+  let eventSnap: DocumentSnapshot<DocumentData> | null = null;
+
+  for (const candidateId of candidateIds) {
+    const ref = db.collection("events").doc(candidateId);
+    const snap = await ref.get();
+    if (snap.exists) {
+      eventRef = ref;
+      eventSnap = snap;
+      break;
+    }
+  }
+
+  if (!eventRef || !eventSnap || !eventSnap.exists) {
     throw new HttpsError("not-found", "Event does not exist.");
   }
 
