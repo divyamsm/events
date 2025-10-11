@@ -49,7 +49,7 @@ final class EventFeedViewModel: ObservableObject {
     @Published var shareContext: ShareContext?
     @Published var presentError: String?
     @Published var shareConfirmation: String?
-    @Published var creationSuccess: Bool = false
+    @Published var toastEntry: ToastEntry?
     @Published private(set) var pastFeedEvents: [FeedEvent] = []
     @Published var showAllPastEvents: Bool = false
 
@@ -394,6 +394,7 @@ final class EventFeedViewModel: ObservableObject {
                         sharedInviteFriendIDs: invitedFriendIDs
                     )
                     await self.loadFeed()
+                    self.showToast(message: "Event updated", systemImage: "pencil.circle.fill")
                 } catch {
                     print("[Feed] updateEvent failed: \(error.localizedDescription)")
                     self.appState.createdEvents = previousCreatedEvents
@@ -403,6 +404,8 @@ final class EventFeedViewModel: ObservableObject {
                     self.presentError = "Couldn't update the event. Please try again."
                 }
             }
+        } else {
+            showToast(message: "Event updated", systemImage: "pencil.circle.fill")
         }
     }
 
@@ -434,6 +437,7 @@ final class EventFeedViewModel: ObservableObject {
                 do {
                     try await remoteBackend.deleteEvent(eventID: eventID, hardDelete: false)
                     await self.loadFeed()
+                    self.showToast(message: "Event deleted", systemImage: "trash.circle.fill")
                 } catch {
                     print("[Feed] deleteEvent failed: \(error.localizedDescription)")
                     self.appState.createdEvents = previousCreatedEvents
@@ -444,20 +448,27 @@ final class EventFeedViewModel: ObservableObject {
                     self.presentError = "Couldn't delete the event. Please try again."
                 }
             }
+        } else {
+            showToast(message: "Event deleted", systemImage: "trash.circle.fill")
         }
     }
 
     private func buildFeedEvents(from events: [Event], friends: [Friend], ascending: Bool) -> [FeedEvent] {
         let createdIDs = Set(appState.createdEvents.map { $0.id })
+        let friendLookup = Dictionary(uniqueKeysWithValues: friends.map { ($0.id, $0) })
 
         let visibleEvents = events.filter { event in
             event.privacy == .public || createdIDs.contains(event.id) || event.sharedInviteFriendIDs.contains(session.user.id)
         }
 
         let enriched = visibleEvents.map { event -> FeedEvent in
-            let attending = friends.filter { event.attendingFriendIDs.contains($0.id) }
-            let invitedMe = friends.filter { event.invitedByFriendIDs.contains($0.id) }
-            let invitedByMe = friends.filter { event.sharedInviteFriendIDs.contains($0.id) }
+            let attendingIDs = Array(Set(event.attendingFriendIDs))
+            let invitedMeIDs = Array(Set(event.invitedByFriendIDs))
+            let invitedByMeIDs = Array(Set(event.sharedInviteFriendIDs))
+
+            let attending = attendingIDs.map { resolveFriend(for: $0, in: event, lookup: friendLookup) }
+            let invitedMe = invitedMeIDs.map { resolveFriend(for: $0, in: event, lookup: friendLookup) }
+            let invitedByMe = invitedByMeIDs.map { resolveFriend(for: $0, in: event, lookup: friendLookup) }
 
             var badges: [FeedEvent.FriendBadge] =
                 invitedMe.map { FeedEvent.FriendBadge(id: $0.id, friend: $0, role: .invitedMe) } +
@@ -466,14 +477,23 @@ final class EventFeedViewModel: ObservableObject {
                 invitedByMe.filter { friend in invitedMe.contains(where: { $0.id == friend.id }) == false }
                     .map { FeedEvent.FriendBadge(id: $0.id, friend: $0, role: .invitedByMe) }
 
+            if let ownerId = event.ownerId {
+                let host = resolveFriend(for: ownerId, in: event, lookup: friendLookup)
+                if badges.contains(where: { $0.friend.id == host.id }) == false {
+                    badges.insert(FeedEvent.FriendBadge(id: host.id, friend: host, role: .invitedByMe), at: 0)
+                }
+            }
+
             let isAttending = appState.attendingEventIDs.contains(event.id)
             if isAttending {
                 let meBadge = FeedEvent.FriendBadge(id: session.user.id, friend: session.user, role: .me)
-                badges.insert(meBadge, at: 0)
+                if badges.contains(where: { $0.friend.id == meBadge.friend.id }) == false {
+                    badges.insert(meBadge, at: 0)
+                }
             }
 
             let distance = event.distance(from: session.currentLocation)
-            let attendingCount = attending.count + (isAttending ? 1 : 0)
+            let attendingCount = max(attendingIDs.count, badges.filter { $0.role == .going || $0.role == .me }.count)
 
             return FeedEvent(
                 event: event,
@@ -502,15 +522,7 @@ final class EventFeedViewModel: ObservableObject {
     }
 
     private func showCreationToast() {
-        withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
-            creationSuccess = true
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) { [weak self] in
-            guard let self else { return }
-            withAnimation(.easeInOut(duration: 0.25)) {
-                self.creationSuccess = false
-            }
-        }
+        showToast(message: "Event created!", systemImage: "sparkles")
     }
 
     private func refreshFeeds() {
@@ -524,6 +536,32 @@ final class EventFeedViewModel: ObservableObject {
             showAllPastEvents = true
         } else if pastFeedEvents.count > 5 {
             // keep user's toggle state
+        }
+    }
+
+    private func resolveFriend(for id: UUID, in event: Event, lookup: [UUID: Friend]) -> Friend {
+        if let friend = lookup[id] {
+            return friend
+        }
+        if id == session.user.id {
+            return session.user
+        }
+        if let ownerId = event.ownerId, ownerId == id {
+            return Friend(id: id, name: "Host", avatarURL: nil)
+        }
+        let suffix = id.uuidString.prefix(4)
+        return Friend(id: id, name: "Guest \(suffix)", avatarURL: nil)
+    }
+
+    private func showToast(message: String, systemImage: String = "checkmark.circle.fill") {
+        withAnimation(.spring(response: 0.45, dampingFraction: 0.85)) {
+            toastEntry = ToastEntry(message: message, systemImage: systemImage)
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.8) { [weak self] in
+            guard let self else { return }
+            withAnimation(.easeInOut(duration: 0.25)) {
+                self.toastEntry = nil
+            }
         }
     }
 
@@ -563,3 +601,8 @@ final class EventFeedViewModel: ObservableObject {
 #endif
 #endif
 }
+    struct ToastEntry: Identifiable {
+        let id = UUID()
+        let message: String
+        let systemImage: String
+    }

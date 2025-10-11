@@ -172,12 +172,13 @@ struct ContentView: View {
             viewModel.shareConfirmation = nil
         }
         .overlay(alignment: .top) {
-            SuccessToast(text: "Event created!")
-                .opacity(viewModel.creationSuccess ? 1 : 0)
-                .offset(y: viewModel.creationSuccess ? 16 : -80)
-                .animation(.spring(response: 0.4, dampingFraction: 0.8), value: viewModel.creationSuccess)
-                .padding(.top, 12)
+            if let toast = viewModel.toastEntry {
+                SuccessToast(text: toast.message, systemImage: toast.systemImage)
+                    .padding(.top, 12)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+            }
         }
+        .animation(.spring(response: 0.45, dampingFraction: 0.85), value: viewModel.toastEntry?.id)
     }
 
     @ViewBuilder
@@ -314,24 +315,171 @@ private struct PastEventRow: View {
     private static let dateFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.dateStyle = .medium
+        formatter.timeStyle = .none
+        return formatter
+    }()
+
+    private static let timeFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .none
         formatter.timeStyle = .short
         return formatter
     }()
 
+    private static let gradientPalettes: [[Color]] = [
+        [Color(red: 0.22, green: 0.37, blue: 0.94), Color(red: 0.57, green: 0.19, blue: 0.97)],
+        [Color(red: 0.17, green: 0.63, blue: 0.75), Color(red: 0.08, green: 0.42, blue: 0.68)],
+        [Color(red: 0.86, green: 0.31, blue: 0.55), Color(red: 0.99, green: 0.55, blue: 0.39)],
+        [Color(red: 0.29, green: 0.51, blue: 0.35), Color(red: 0.13, green: 0.36, blue: 0.23)]
+    ]
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(feedEvent.event.title)
-                .font(.headline)
-            Text(feedEvent.event.location)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-            Text(Self.dateFormatter.string(from: feedEvent.event.date))
-                .font(.footnote)
-                .foregroundStyle(.secondary)
+        HStack(alignment: .top, spacing: 16) {
+            timelineIndicator
+
+            VStack(alignment: .leading, spacing: 16) {
+                Text(feedEvent.event.title)
+                    .font(.headline.weight(.semibold))
+                    .foregroundStyle(.white)
+                    .lineLimit(2)
+
+                Label(scheduleText, systemImage: "calendar")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.white.opacity(0.92))
+                    .lineLimit(1)
+
+                Label(feedEvent.event.location, systemImage: "mappin.and.ellipse")
+                    .font(.subheadline)
+                    .foregroundStyle(.white.opacity(0.9))
+                    .lineLimit(1)
+
+                if feedEvent.badges.isEmpty == false {
+                    attendeesSection
+                }
+            }
         }
-        .padding(16)
+        .padding(.vertical, 22)
+        .padding(.horizontal, 20)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .background(
+            RoundedRectangle(cornerRadius: 26, style: .continuous)
+                .fill(gradientBackground)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 26, style: .continuous)
+                        .stroke(Color.white.opacity(0.18), lineWidth: 1)
+                )
+        )
+        .shadow(color: (gradientColors.last ?? .black).opacity(0.28), radius: 18, x: 0, y: 10)
+    }
+
+    private var gradientColors: [Color] {
+        let palettes = Self.gradientPalettes
+        let index = abs(feedEvent.event.id.uuidString.hashValue) % palettes.count
+        return palettes[index]
+    }
+
+    private var gradientBackground: LinearGradient {
+        LinearGradient(
+            colors: gradientColors,
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        )
+    }
+
+    private var timelineIndicator: some View {
+        VStack(spacing: 8) {
+            ZStack {
+                Circle()
+                    .fill(gradientBackground)
+                    .frame(width: 26, height: 26)
+                    .shadow(color: gradientColors.first?.opacity(0.45) ?? .clear, radius: 6, y: 3)
+
+                Image(systemName: "clock.arrow.circlepath")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.white)
+            }
+
+            Rectangle()
+                .fill(Color.white.opacity(0.22))
+                .frame(width: 3, height: 72)
+                .cornerRadius(1.5)
+        }
+        .frame(width: 30)
+    }
+
+    private var scheduleText: String {
+        "\(Self.dateFormatter.string(from: feedEvent.event.date)) · \(Self.timeFormatter.string(from: feedEvent.event.date))"
+    }
+
+    private var attendeesSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Attended by")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.white.opacity(0.72))
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 12) {
+                    ForEach(feedEvent.badges) { badge in
+                        attendeeChip(for: badge)
+                    }
+                }
+                .padding(.leading, 4)
+            }
+            .frame(height: 40)
+        }
+    }
+
+    private func attendeeChip(for badge: EventFeedViewModel.FeedEvent.FriendBadge) -> some View {
+        HStack(spacing: 10) {
+            MiniAvatar(badge: badge)
+            Text(badge.friend.name)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.white)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+        .background(
+            Capsule()
+                .fill(Color.white.opacity(0.16))
+        )
+    }
+
+    private struct MiniAvatar: View {
+        let badge: EventFeedViewModel.FeedEvent.FriendBadge
+
+        var body: some View {
+            ZStack {
+                if let url = badge.friend.avatarURL {
+                    AsyncImage(url: url) { phase in
+                        switch phase {
+                        case .success(let image):
+                            image
+                                .resizable()
+                                .scaledToFill()
+                        case .empty:
+                            placeholderInitials
+                        case .failure:
+                            placeholderInitials
+                        @unknown default:
+                            placeholderInitials
+                        }
+                    }
+                    .frame(width: 32, height: 32)
+                    .clipShape(Circle())
+                } else {
+                    placeholderInitials
+                }
+            }
+            .shadow(color: .black.opacity(0.25), radius: 6, y: 3)
+        }
+
+        private var placeholderInitials: some View {
+            Text(badge.friend.initials)
+                .font(.caption.weight(.bold))
+                .foregroundStyle(.white)
+                .frame(width: 32, height: 32)
+                .background(Circle().fill(Color.white.opacity(0.12)))
+        }
     }
 }
 
@@ -1755,14 +1903,36 @@ private struct ShareTargetView: View {
 
 private struct SuccessToast: View {
     let text: String
+    let systemImage: String
 
     var body: some View {
-        Text(text)
-            .font(.headline.weight(.semibold))
-            .padding(.horizontal, 20)
-            .padding(.vertical, 12)
-            .background(.ultraThinMaterial, in: Capsule())
-            .shadow(radius: 6, y: 4)
-            .allowsHitTesting(false)
+        HStack(spacing: 12) {
+            Image(systemName: systemImage)
+                .font(.system(size: 18, weight: .semibold))
+                .symbolRenderingMode(.hierarchical)
+                .foregroundStyle(.white)
+
+            Text(text)
+                .font(.headline.weight(.semibold))
+                .foregroundStyle(.white)
+        }
+        .padding(.horizontal, 22)
+        .padding(.vertical, 14)
+        .background(
+            RoundedRectangle(cornerRadius: 30, style: .continuous)
+                .fill(
+                    LinearGradient(
+                        colors: [Color(red: 0.30, green: 0.41, blue: 1.00), Color(red: 0.62, green: 0.26, blue: 0.95)],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 30, style: .continuous)
+                        .stroke(Color.white.opacity(0.22), lineWidth: 1)
+                )
+        )
+        .shadow(color: Color.black.opacity(0.28), radius: 16, y: 10)
+        .allowsHitTesting(false)
     }
 }
