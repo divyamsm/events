@@ -97,9 +97,44 @@ The callable should return `{ "eventId": "<event document ID>", "hardDelete": fa
 
 ---
 
-## Follow-up
+---
 
-- Update `functions/src/schema.ts` with zod schemas for the new requests.
-- Wire entry points in `functions/src/index.ts`.
-- Add integration tests (emulator-based) once the testing harness is in place.
-- Extend the iOS `FirebaseEventBackend` to call the new functions.
+## Upcoming Social APIs
+
+The upcoming milestones focus on the social surface: managing the friend graph,
+sharing events, and exposing profile insights.
+
+Auth is still disabled. Each callable takes explicit `userId`/`senderId` fields
+that must be removed once auth returns (see `backend/TODO.md`).
+
+### Friend Graph
+
+| Endpoint | Purpose | Notes |
+| --- | --- | --- |
+| `listFriends` (callable) | Return the caller's on-app friends plus pending invites. | Payload supplies `userId`; add filters (on-app vs invited). |
+| `sendFriendInvite` (callable) | Fire off an invite via phone/email. | For now just writes an invite doc; trust `senderId`. |
+| `respondToInvite` (callable) | Accept/decline an incoming invite. | Mutates `friends` + `invites`; requires `userId`. |
+| `removeFriend` (callable) | Soft-remove a friend connection. | Needs `{ userId, friendId }`; future “block” flag optional. |
+
+### Event Sharing
+
+| Endpoint | Purpose | Notes |
+| --- | --- | --- |
+| `shareEvent` (callable) | Share an event with selected friends (pushes into `sharedInviteFriendIds`). | Request includes `{ senderId, eventId, recipientIds }`. |
+| `listEventShares` (HTTP) | (Optional) Show share history for analytics/debug. | Defer unless needed for analytics. |
+
+### Profile Surface
+
+| Endpoint | Purpose |
+| --- | --- |
+| `getProfile` (callable) | Fetch display name, avatar, stats, streak, etc. (requires `userId`). |
+| `updateProfile` (callable) | Edit bio, username, primary location (requires `userId`). |
+| `listAttendedEvents` (callable) | Pull a condensed archive for the profile calendar (requires `userId`). |
+
+Implementation order recommendation:
+
+1. **Friend graph read API** – `listFriends` feeding the profile sheet.
+2. **Invites/requests** – `sendFriendInvite`, `respondToInvite`, `removeFriend`.
+3. **Event share callable** – unify sharing flow across app and backend.
+4. **Profile fetch/update** – power profile screen with real data.
+5. Optional analytics endpoints (`listEventShares`, attendance summaries).

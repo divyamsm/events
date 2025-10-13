@@ -1,18 +1,22 @@
 import Foundation
 import CoreLocation
 
-struct Contact: Identifiable {
+struct PendingInvite: Identifiable {
     let id: UUID
     var name: String
-    var isOnApp: Bool
-    var initials: String
+    var direction: Direction
+    var contact: String?
 
-    init(id: UUID = UUID(), name: String, isOnApp: Bool) {
+    enum Direction: String {
+        case sent
+        case received
+    }
+
+    init(id: UUID = UUID(), name: String, direction: Direction, contact: String? = nil) {
         self.id = id
         self.name = name
-        self.isOnApp = isOnApp
-        let components = name.split(separator: " ").compactMap { $0.first }
-        self.initials = String(components.prefix(2)).uppercased()
+        self.direction = direction
+        self.contact = contact
     }
 }
 
@@ -21,24 +25,36 @@ struct AttendedEvent: Identifiable {
     let eventID: UUID
     let date: Date
     let coverImageName: String?
+    let coverImageURL: URL?
 
-    init(id: UUID = UUID(), eventID: UUID, date: Date, coverImageName: String? = nil) {
+    init(id: UUID = UUID(), eventID: UUID, date: Date, coverImageName: String? = nil, coverImageURL: URL? = nil) {
         self.id = id
         self.eventID = eventID
         self.date = date
         self.coverImageName = coverImageName
+        self.coverImageURL = coverImageURL
     }
 }
 
+struct ProfileStats {
+    var hostedCount: Int
+    var attendedCount: Int
+    var friendCount: Int
+    var invitesSent: Int
+}
+
 struct UserProfile {
+    var id: UUID
     var displayName: String
     var username: String
     var bio: String
     var joinDate: Date
     var primaryLocation: CLLocation?
+    var photoURL: URL?
     var friends: [Friend]
-    var suggestedContacts: [Contact]
+    var pendingInvites: [PendingInvite]
     var attendedEvents: [AttendedEvent]
+    var stats: ProfileStats
 }
 
 enum ProfileRepository {
@@ -51,41 +67,25 @@ enum ProfileRepository {
     static let sampleProfile: UserProfile = {
         let friends = EventRepository.friends
 
-        let contacts: [Contact] = [
-            Contact(name: "Priya Raman", isOnApp: false),
-            Contact(name: "Marcus Taylor", isOnApp: false),
-            Contact(name: "Evelyn Chen", isOnApp: true),
-            Contact(name: "Carlos Mendez", isOnApp: false),
-            Contact(name: "Sandra Holt", isOnApp: true)
-        ]
-
-        let attended: [AttendedEvent] = [
-            AttendedEvent(
-                eventID: EventRepository.sampleEvents[0].id,
-                date: calendar.date(from: DateComponents(year: 2025, month: 10, day: 3)) ?? .now,
-                coverImageName: "calendar-event-1"
-            ),
-            AttendedEvent(
-                eventID: EventRepository.sampleEvents[1].id,
-                date: calendar.date(from: DateComponents(year: 2025, month: 10, day: 9)) ?? .now,
-                coverImageName: "calendar-event-2"
-            ),
-            AttendedEvent(
-                eventID: EventRepository.sampleEvents[2].id,
-                date: calendar.date(from: DateComponents(year: 2025, month: 10, day: 18)) ?? .now,
-                coverImageName: nil
-            )
-        ]
+        let currentUser = EventRepository.currentUser
 
         return UserProfile(
+            id: currentUser.id,
             displayName: "Bharath Raghunath",
             username: "@bharathraghunath",
             bio: "Building a shared event feed with friends.",
             joinDate: calendar.date(from: DateComponents(year: 2023, month: 5, day: 12)) ?? .now,
             primaryLocation: nil,
+            photoURL: nil,
             friends: friends,
-            suggestedContacts: contacts,
-            attendedEvents: attended
+            pendingInvites: [],
+            attendedEvents: [],
+            stats: ProfileStats(
+                hostedCount: 0,
+                attendedCount: 0,
+                friendCount: friends.count,
+                invitesSent: 0
+            )
         )
     }()
 }

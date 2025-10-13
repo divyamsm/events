@@ -141,7 +141,7 @@ final class FirebaseEventBackend: EventBackend {
 
         print("[Backend] calling updateEvent", payload)
         let result = try await callable.call(payload)
-        print("[Backend] updateEvent response", result.data ?? "nil")
+        print("[Backend] updateEvent response", String(describing: result.data))
         if
             let response = result.data as? [String: Any],
             let eventIdString = response["eventId"] as? String,
@@ -160,7 +160,7 @@ final class FirebaseEventBackend: EventBackend {
         ]
         print("[Backend] calling deleteEvent", payload)
         let result = try await callable.call(payload)
-        print("[Backend] deleteEvent response", result.data ?? "nil")
+        print("[Backend] deleteEvent response", String(describing: result.data))
         if hardDelete {
             eventIdentifierMap.removeValue(forKey: eventID)
         } else if

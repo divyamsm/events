@@ -100,6 +100,46 @@ export const eventDeleteSchema = z.object({
 
 export type EventDeletePayload = z.infer<typeof eventDeleteSchema>;
 
+export const profileRequestSchema = z.object({
+  userId: z.string().min(1)
+});
+
+export type ProfileRequestPayload = z.infer<typeof profileRequestSchema>;
+
+export const profileUpdateSchema = z
+  .object({
+    userId: z.string().min(1),
+    displayName: z.string().min(1).max(80).optional(),
+    username: z
+      .string()
+      .min(3)
+      .max(30)
+      .regex(/^[A-Za-z0-9._-]+$/, "Usernames may contain letters, numbers, dots, underscores, and hyphens.")
+      .optional(),
+    bio: z.string().max(200).optional().nullable(),
+    primaryLocation: geoSchema,
+    photoURL: z.string().url().optional().nullable()
+  })
+  .superRefine((value, ctx) => {
+    const mutableKeys: Array<keyof typeof value> = ["displayName", "username", "bio", "primaryLocation", "photoURL"];
+    const hasUpdate = mutableKeys.some((key) => value[key] !== undefined);
+    if (!hasUpdate) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "At least one field must be provided to update."
+      });
+    }
+  });
+
+export type ProfileUpdatePayload = z.infer<typeof profileUpdateSchema>;
+
+export const profileAttendedSchema = z.object({
+  userId: z.string().min(1),
+  limit: z.number().int().positive().max(50).default(25)
+});
+
+export type ProfileAttendedPayload = z.infer<typeof profileAttendedSchema>;
+
 export interface EventDoc {
   ownerId: string;
   title: string;
