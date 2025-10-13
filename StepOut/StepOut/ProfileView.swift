@@ -287,8 +287,16 @@ final class ProfileViewModel: ObservableObject {
     }
 
     func loadProfile() async {
-        isLoading = true
-        defer { isLoading = false }
+        // Only show loading if we don't have a profile yet
+        let shouldShowLoading = profile == nil
+        if shouldShowLoading {
+            isLoading = true
+        }
+        defer {
+            if shouldShowLoading {
+                isLoading = false
+            }
+        }
 
         do {
             let response = try await backend.fetchProfile(userId: userId)
@@ -389,6 +397,10 @@ final class ProfileViewModel: ObservableObject {
         AttendedEvent(
             eventID: event.id,
             date: event.startAt ?? Date(),
+            title: event.title,
+            location: event.location,
+            startAt: event.startAt,
+            endAt: event.endAt,
             coverImageName: nil,
             coverImageURL: event.coverImagePath.flatMap(URL.init(string:))
         )
@@ -426,6 +438,8 @@ struct ProfileView: View {
     @State private var showSettings = false
     @State private var showFriends = false
     @State private var showEditProfile = false
+    @State private var selectedDayEvents: [AttendedEvent]?
+    @State private var selectedDate: Date?
 
     var body: some View {
         content
@@ -443,7 +457,6 @@ struct ProfileView: View {
         }
         .task {
             await viewModel.loadProfile()
-            await viewModel.refreshAttendedEvents(limit: 25)
         }
         .sheet(isPresented: $showFriends) {
             if let profile = viewModel.profile {
@@ -492,6 +505,16 @@ struct ProfileView: View {
         } message: {
             Text(viewModel.errorMessage ?? "")
         }
+        .sheet(isPresented: Binding(
+            get: { selectedDayEvents != nil },
+            set: { if !$0 { selectedDayEvents = nil; selectedDate = nil } }
+        )) {
+            if let events = selectedDayEvents, let date = selectedDate {
+                DayEventsSheetView(date: date, events: events)
+                    .presentationDetents([.medium, .large])
+                    .presentationDragIndicator(.visible)
+            }
+        }
     }
 
     @ViewBuilder
@@ -506,6 +529,9 @@ struct ProfileView: View {
                 }
                 .padding(.horizontal, 20)
                 .padding(.vertical, 28)
+            }
+            .refreshable {
+                await viewModel.loadProfile()
             }
         } else if viewModel.isLoading {
             VStack(spacing: 16) {
@@ -595,13 +621,20 @@ struct ProfileView: View {
     }
 
     private func calendarSection(profile: UserProfile) -> some View {
-        VStack(alignment: .leading, spacing: 20) {
-            ProfileCalendarView(
-                month: focusMonth,
-                calendar: calendar,
-                attendedEvents: profile.attendedEvents
-            )
-        }
+        ProfileCalendarView(
+            month: focusMonth,
+            calendar: calendar,
+            attendedEvents: profile.attendedEvents,
+            onDayTapped: { day, events in
+                selectedDate = calendar.date(from: DateComponents(
+                    year: calendar.component(.year, from: focusMonth),
+                    month: calendar.component(.month, from: focusMonth),
+                    day: day
+                ))
+                selectedDayEvents = events
+            }
+        )
+        .fixedSize(horizontal: false, vertical: true)
         .padding(20)
         .frame(maxWidth: .infinity)
         .background(
@@ -703,6 +736,7 @@ private struct ProfileCalendarView: View {
     let month: Date
     let calendar: Calendar
     let attendedEvents: [AttendedEvent]
+    let onDayTapped: (Int, [AttendedEvent]) -> Void
 
     private var monthFormatter: DateFormatter {
         let formatter = DateFormatter()
@@ -741,18 +775,28 @@ private struct ProfileCalendarView: View {
                 .font(.title3.bold())
 
             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 7), spacing: 12) {
-                ForEach(weekdaySymbols, id: \.self) { symbol in
+                ForEach(Array(weekdaySymbols.enumerated()), id: \.offset) { index, symbol in
                     Text(symbol.uppercased())
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity)
+                        .id("weekday-\(index)")
                 }
 
-                ForEach(Array(dayGrid.enumerated()), id: \.offset) { _, day in
+                ForEach(Array(dayGrid.enumerated()), id: \.offset) { offset, day in
                     CalendarDayCell(
                         day: day,
                         events: day.flatMap { eventsByDay[$0] } ?? []
                     )
+                    .id("day-\(offset)")
+                    .onTapGesture {
+                        if let day = day {
+                            let events = eventsByDay[day] ?? []
+                            if !events.isEmpty {
+                                onDayTapped(day, events)
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -979,6 +1023,180 @@ private struct EditProfileSheetView: View {
 private extension String {
     func trimmed() -> String {
         trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
+// MARK: - Day Events Sheet
+private struct DayEventsSheetView: View {
+    let date: Date
+    let events: [AttendedEvent]
+    @Environment(\.dismiss) private var dismiss
+    @Namespace private var animation
+
+    private var dateFormatter: DateFormatter {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "EEEE, MMMM d"
+        return formatter
+    }
+
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                Color(.systemBackground)
+                    .ignoresSafeArea()
+
+                ScrollView {
+                    VStack(spacing: 20) {
+                        headerSection
+                        eventsSection
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 24)
+                }
+            }
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        dismiss()
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.title2)
+                            .foregroundStyle(.secondary)
+                            .symbolRenderingMode(.hierarchical)
+                    }
+                }
+            }
+        }
+    }
+
+    private var headerSection: some View {
+        VStack(spacing: 8) {
+            Text(dateFormatter.string(from: date))
+                .font(.title.bold())
+                .multilineTextAlignment(.center)
+
+            Text("\(events.count) event\(events.count == 1 ? "" : "s") attended")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 12)
+    }
+
+    private var eventsSection: some View {
+        VStack(spacing: 16) {
+            ForEach(Array(events.enumerated()), id: \.element.id) { index, event in
+                EventCard(event: event, index: index)
+                    .transition(.asymmetric(
+                        insertion: .scale(scale: 0.8).combined(with: .opacity),
+                        removal: .opacity
+                    ))
+            }
+        }
+    }
+}
+
+private struct EventCard: View {
+    let event: AttendedEvent
+    let index: Int
+
+    private var timeFormatter: DateFormatter {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "h:mm a"
+        return formatter
+    }
+
+    var body: some View {
+        HStack(spacing: 16) {
+            eventImage
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text(event.title)
+                    .font(.headline)
+                    .lineLimit(2)
+
+                Label {
+                    Text(event.location)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                } icon: {
+                    Image(systemName: "location.fill")
+                        .font(.caption)
+                }
+
+                if let startAt = event.startAt {
+                    Label {
+                        Text(timeFormatter.string(from: startAt))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    } icon: {
+                        Image(systemName: "clock.fill")
+                            .font(.caption2)
+                    }
+                }
+            }
+
+            Spacer()
+
+            Image(systemName: "chevron.right")
+                .font(.caption.bold())
+                .foregroundStyle(.tertiary)
+        }
+        .padding(16)
+        .background(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .fill(Color(.secondarySystemBackground))
+                .shadow(color: .black.opacity(0.05), radius: 8, x: 0, y: 2)
+        )
+        .animation(.spring(response: 0.4, dampingFraction: 0.7).delay(Double(index) * 0.05), value: event.id)
+    }
+
+    @ViewBuilder
+    private var eventImage: some View {
+        if let coverURL = event.coverImageURL {
+            AsyncImage(url: coverURL) { phase in
+                switch phase {
+                case .success(let image):
+                    image
+                        .resizable()
+                        .scaledToFill()
+                case .empty, .failure:
+                    placeholderGradient
+                @unknown default:
+                    placeholderGradient
+                }
+            }
+            .frame(width: 64, height: 64)
+            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        } else if let coverName = event.coverImageName, UIImage(named: coverName) != nil {
+            Image(coverName)
+                .resizable()
+                .scaledToFill()
+                .frame(width: 64, height: 64)
+                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        } else {
+            placeholderGradient
+                .frame(width: 64, height: 64)
+                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        }
+    }
+
+    private var placeholderGradient: some View {
+        LinearGradient(
+            colors: [
+                Color(hue: Double(index) * 0.15, saturation: 0.7, brightness: 0.9),
+                Color(hue: Double(index) * 0.15 + 0.1, saturation: 0.6, brightness: 0.7)
+            ],
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        )
+        .overlay(
+            Image(systemName: "calendar")
+                .font(.title2)
+                .foregroundStyle(.white.opacity(0.8))
+        )
     }
 }
 

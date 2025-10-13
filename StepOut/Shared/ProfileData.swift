@@ -24,13 +24,21 @@ struct AttendedEvent: Identifiable {
     let id: UUID
     let eventID: UUID
     let date: Date
+    let title: String
+    let location: String
+    let startAt: Date?
+    let endAt: Date?
     let coverImageName: String?
     let coverImageURL: URL?
 
-    init(id: UUID = UUID(), eventID: UUID, date: Date, coverImageName: String? = nil, coverImageURL: URL? = nil) {
+    init(id: UUID = UUID(), eventID: UUID, date: Date, title: String, location: String, startAt: Date? = nil, endAt: Date? = nil, coverImageName: String? = nil, coverImageURL: URL? = nil) {
         self.id = id
         self.eventID = eventID
         self.date = date
+        self.title = title
+        self.location = location
+        self.startAt = startAt
+        self.endAt = endAt
         self.coverImageName = coverImageName
         self.coverImageURL = coverImageURL
     }
