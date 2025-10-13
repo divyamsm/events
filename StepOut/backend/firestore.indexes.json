@@ -38,11 +38,11 @@
     },
     {
       "collectionGroup": "members",
-      "queryScope": "COLLECTION",
+      "queryScope": "COLLECTION_GROUP",
       "fields": [
         { "fieldPath": "userId", "order": "ASCENDING" },
         { "fieldPath": "status", "order": "ASCENDING" },
-        { "fieldPath": "updatedAt", "order": "DESCENDING" }
+        { "fieldPath": "__name__", "order": "ASCENDING" }
       ]
     }
   ],

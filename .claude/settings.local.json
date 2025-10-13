@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cat:*)",
+      "Bash(npm run build)",
+      "Bash(firebase deploy:*)",
+      "Bash(firebase functions:log:*)",
+      "Bash(open \"https://console.firebase.google.com/v1/r/project/stepout-3db1a/firestore/indexes?create_composite=Ck1wcm9qZWN0cy9zdGVwb3V0LTNkYjFhL2RhdGFiYXNlcy8oZGVmYXVsdCkvY29sbGVjdGlvbkdyb3Vwcy9tZW1iZXJzL2luZGV4ZXMvXxACGgoKBnN0YXR1cxABGgoKBnVzZXJJZBABGgwKCF9fbmFtZV9fEAE\")",
+      "Bash(firebase firestore:indexes:*)",
+      "Bash(curl:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
