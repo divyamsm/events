@@ -15,22 +15,17 @@ final class FirebaseEventBackend: EventBackend {
 
     func fetchFeed(for user: Friend, near location: CLLocation) async throws -> EventFeedSnapshot {
         let callable = functions.httpsCallable("listFeed")
-        print("[Backend] calling listFeed")
-        let result: HTTPSCallableResult
-        do {
-            result = try await callable.call([String: Any]())
-        } catch {
-            print("[Backend] listFeed error: \(error.localizedDescription)")
-            throw error
-        }
-        print("[Backend] listFeed response: \(String(describing: result.data))")
+        // Pass userId in payload to support authentication without Firebase Auth
+        let payload: [String: Any] = ["userId": user.id.uuidString]
+        let result = try await callable.call(payload)
         guard let payload = result.data as? [String: Any] else {
             throw NSError(domain: "FirebaseEventBackend", code: -1, userInfo: [NSLocalizedDescriptionKey: "Malformed listFeed response"])
         }
 
         let friends = parseFriends(from: payload["friends"])
         let events = parseEvents(from: payload["events"])
-        return EventFeedSnapshot(events: events, friends: friends.filter { $0.id != user.id })
+        let filteredFriends = friends.filter { $0.id != user.id }
+        return EventFeedSnapshot(events: events, friends: filteredFriends)
     }
 
     func sendInvite(for eventID: UUID, from sender: Friend, to recipients: [Friend]) async throws {
@@ -170,6 +165,18 @@ final class FirebaseEventBackend: EventBackend {
         {
             eventIdentifierMap[updatedID] = eventIdString.uppercased()
         }
+    }
+
+    func shareEvent(eventID: UUID, recipientIDs: [UUID]) async throws {
+        let callable = functions.httpsCallable("shareEvent")
+        let canonicalID = eventIdentifierMap[eventID] ?? eventID.uuidString.uppercased()
+        let payload: [String: Any] = [
+            "eventId": canonicalID,
+            "recipientIds": recipientIDs.map { $0.uuidString.uppercased() }
+        ]
+        print("[Backend] calling shareEvent", payload)
+        let result = try await callable.call(payload)
+        print("[Backend] shareEvent response", String(describing: result.data))
     }
 
     private func parseFriends(from value: Any?) -> [Friend] {

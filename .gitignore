@@ -42,16 +42,22 @@ Pods/
 backend/functions/node_modules/
 backend/functions/lib/
 backend/tools/node_modules/
-backend/tools/serviceaccount.json
+backend/tools/serviceAccount.json
 backend/firebase-debug.log
 backend/.firebase/
 StepOut/backend/functions/node_modules/
 StepOut/backend/functions/lib/
 StepOut/backend/tools/node_modules/
-StepOut/backend/tools/serviceaccount.json
+StepOut/backend/tools/serviceAccount.json
 StepOut/backend/firebase-debug.log
 StepOut/backend/.firebase/
 firebase-debug.log
+
+# Keep seed scripts for future reference (documented in TESTING_GUIDE_3_NEW_APIS.md)
+# - seedUsers.cjs
+# - seedFriendsAndInvites.cjs
+# - seedProfile.cjs
+# - seed.js
 
 # Carthage
 Carthage/Build/

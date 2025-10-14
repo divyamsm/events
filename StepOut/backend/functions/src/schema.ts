@@ -226,3 +226,47 @@ export interface WidgetSnapshotDoc {
     coverImageURL?: string | null;
   }>;
 }
+
+// Social APIs
+export const shareEventSchema = z.object({
+  senderId: z.string().min(1),
+  eventId: z.string().min(1),
+  recipientIds: z.array(z.string().min(1)).min(1)
+});
+
+export type ShareEventPayload = z.infer<typeof shareEventSchema>;
+
+export const friendInviteSchema = z.object({
+  senderId: z.string().min(1),
+  recipientPhone: z.string().optional(),
+  recipientEmail: z.string().email().optional()
+}).refine((data) => data.recipientPhone || data.recipientEmail, {
+  message: "Either recipientPhone or recipientEmail must be provided"
+});
+
+export type FriendInvitePayload = z.infer<typeof friendInviteSchema>;
+
+export const listFriendsSchema = z.object({
+  userId: z.string().min(1),
+  includeInvites: z.boolean().default(true)
+});
+
+export type ListFriendsPayload = z.infer<typeof listFriendsSchema>;
+
+export interface FriendDoc {
+  userId: string;
+  friendId: string;
+  status: "active" | "blocked";
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
+}
+
+export interface FriendInviteDoc {
+  senderId: string;
+  recipientPhone?: string | null;
+  recipientEmail?: string | null;
+  recipientUserId?: string | null;
+  status: "pending" | "accepted" | "declined";
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
+}

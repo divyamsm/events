@@ -152,9 +152,22 @@ final class FirebaseProfileBackend: ProfileBackend {
     func fetchProfile(userId: UUID) async throws -> RemoteProfileResponse {
         let callable = functions.httpsCallable("getProfile")
         let result = try await callable.call(["userId": userId.uuidString])
+
+        print("🔍 [ProfileBackend] Raw API response:")
+        if let data = result.data as? [String: Any] {
+            if let invites = data["pendingInvites"] as? [[String: Any]] {
+                print("   pendingInvites count: \(invites.count)")
+            } else {
+                print("   ❌ pendingInvites key not found in data")
+            }
+        }
+
         guard let data = result.data as? [String: Any], let response = RemoteProfileResponse(dictionary: data) else {
             throw NSError(domain: "FirebaseProfileBackend", code: -1, userInfo: [NSLocalizedDescriptionKey: "Malformed getProfile response"])
         }
+
+        print("   ✅ Parsed response has \(response.pendingInvites.count) invites")
+
         return response
     }
 
@@ -188,6 +201,53 @@ final class FirebaseProfileBackend: ProfileBackend {
             let endAt = (item["endAt"] as? String).flatMap { ISO8601DateFormatter().date(from: $0) }
             return RemoteProfileResponse.RemoteAttendedEvent(id: uuid, title: title, startAt: startAt, endAt: endAt, location: location, coverImagePath: coverImagePath)
         }
+    }
+
+    func listFriends(userId: UUID, includeInvites: Bool) async throws -> ([RemoteProfileResponse.RemoteFriend], [RemoteProfileResponse.RemoteInvite]) {
+        let callable = functions.httpsCallable("listFriends")
+        let payload: [String: Any] = ["userId": userId.uuidString, "includeInvites": includeInvites]
+        print("[Backend] calling listFriends")
+        let result = try await callable.call(payload)
+        guard let data = result.data as? [String: Any] else {
+            throw NSError(domain: "FirebaseProfileBackend", code: -1)
+        }
+
+        let friends = (data["friends"] as? [[String: Any]] ?? []).compactMap { item -> RemoteProfileResponse.RemoteFriend? in
+            guard let idString = item["id"] as? String, let uuid = UUID(uuidString: idString) else { return nil }
+            return RemoteProfileResponse.RemoteFriend(
+                id: uuid,
+                displayName: item["displayName"] as? String ?? "Friend",
+                photoURL: (item["photoURL"] as? String).flatMap(URL.init),
+                status: item["status"] as? String ?? "on-app"
+            )
+        }
+
+        let invites = (data["pendingInvites"] as? [[String: Any]] ?? []).compactMap { item -> RemoteProfileResponse.RemoteInvite? in
+            guard let idString = item["id"] as? String, let uuid = UUID(uuidString: idString) else { return nil }
+            let directionRaw = item["direction"] as? String ?? "sent"
+            let direction = RemoteProfileResponse.RemoteInvite.Direction(rawValue: directionRaw) ?? .sent
+            return RemoteProfileResponse.RemoteInvite(
+                id: uuid,
+                displayName: item["displayName"] as? String ?? "Friend",
+                direction: direction,
+                contact: item["contact"] as? String
+            )
+        }
+
+        return (friends, invites)
+    }
+
+    func sendFriendInvite(senderId: UUID, recipientPhone: String?, recipientEmail: String?) async throws -> String {
+        let callable = functions.httpsCallable("sendFriendInvite")
+        var payload: [String: Any] = ["senderId": senderId.uuidString]
+        if let phone = recipientPhone { payload["recipientPhone"] = phone }
+        if let email = recipientEmail { payload["recipientEmail"] = email }
+        print("[Backend] calling sendFriendInvite")
+        let result = try await callable.call(payload)
+        guard let data = result.data as? [String: Any], let inviteId = data["inviteId"] as? String else {
+            throw NSError(domain: "FirebaseProfileBackend", code: -1)
+        }
+        return inviteId
     }
 }
 #endif

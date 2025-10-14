@@ -9,7 +9,17 @@
       "Bash(firebase firestore:indexes:*)",
       "Bash(curl:*)",
       "Bash(xcodebuild:*)",
-      "Bash(xcrun xctrace:*)"
+      "Bash(xcrun xctrace:*)",
+      "Bash(firebase functions:list:*)",
+      "Bash(node seedUsers.cjs)",
+      "Bash(firebase use:*)",
+      "Bash(open:*)",
+      "Bash(chmod:*)",
+      "Bash(python3:*)",
+      "Bash(node:*)",
+      "Bash(tee:*)",
+      "Bash(pkill:*)",
+      "Bash(ls:*)"
     ],
     "deny": [],
     "ask": []

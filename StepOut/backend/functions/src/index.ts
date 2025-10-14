@@ -12,6 +12,12 @@ import {
   ProfileRequestPayload,
   ProfileUpdatePayload,
   RSVPCallPayload,
+  ShareEventPayload,
+  FriendInvitePayload,
+  ListFriendsPayload,
+  FriendDoc,
+  FriendInviteDoc,
+  UserDoc,
   eventDeleteSchema,
   eventSchema,
   eventUpdateSchema,
@@ -19,7 +25,10 @@ import {
   profileRequestSchema,
   profileUpdateSchema,
   feedQuerySchema,
-  rsvpRequestSchema
+  rsvpRequestSchema,
+  shareEventSchema,
+  friendInviteSchema,
+  listFriendsSchema
 } from "./schema";
 import { parseRequest } from "./validators";
 
@@ -133,21 +142,39 @@ async function buildProfilePayload(userId: string) {
   const primaryLocation = data.primaryLocation ?? null;
 
   const [friendsSnap, outgoingInvitesSnap, incomingInvitesSnap, hostedSnap, attendedEvents] = await Promise.all([
-    userRef.collection("friends").get(),
-    db.collection("invites").where("senderId", "==", userId).where("status", "==", "sent").get(),
-    db.collection("invites").where("recipientUserId", "==", userId).where("status", "==", "sent").get(),
+    db.collection("friends").where("userId", "==", userId).where("status", "==", "active").get(),
+    db.collection("friendInvites").where("senderId", "==", userId).where("status", "==", "pending").get(),
+    db.collection("friendInvites").where("recipientUserId", "==", userId).where("status", "==", "pending").get(),
     db.collection("events").where("ownerId", "==", userId).get(),
     fetchAttendedEvents(userId, 12)
   ]);
 
-  const friends = friendsSnap.docs.map((doc) => {
-    const friendData = doc.data() ?? {};
-    const friendId = friendData.friendId ?? doc.id;
+  // Fetch friend details
+  const friendIds = friendsSnap.docs.map(doc => doc.data().friendId);
+  const friendPromises = friendIds.map(async (friendId) => {
+    const friendDoc = await db.collection("users").doc(friendId).get();
+    if (!friendDoc.exists) return null;
+    const friendData = friendDoc.data() ?? {};
     return {
       id: friendId,
       displayName: friendData.displayName ?? "Friend",
       photoURL: friendData.photoURL ?? null,
-      status: friendData.status ?? "on-app"
+      status: "on-app"
+    };
+  });
+  const friendsWithDetails = await Promise.all(friendPromises);
+  const friends = friendsWithDetails.filter(f => f !== null);
+
+  // Fetch sender details for incoming invites
+  const incomingInvitePromises = incomingInvitesSnap.docs.map(async (doc) => {
+    const invite = doc.data() ?? {};
+    const senderDoc = await db.collection("users").doc(invite.senderId).get();
+    const senderData = senderDoc.exists ? senderDoc.data() : null;
+    return {
+      id: doc.id,
+      direction: "received" as const,
+      displayName: senderData?.displayName ?? "Friend",
+      contact: invite.recipientPhone ?? invite.recipientEmail ?? null
     };
   });
 
@@ -157,19 +184,11 @@ async function buildProfilePayload(userId: string) {
       return {
         id: doc.id,
         direction: "sent" as const,
-        displayName: invite.recipientName ?? invite.recipientPhone ?? "Friend",
+        displayName: invite.recipientPhone ?? invite.recipientEmail ?? "Friend",
         contact: invite.recipientPhone ?? invite.recipientEmail ?? null
       };
     }),
-    ...incomingInvitesSnap.docs.map((doc) => {
-      const invite = doc.data() ?? {};
-      return {
-        id: doc.id,
-        direction: "received" as const,
-        displayName: invite.senderName ?? "Friend",
-        contact: invite.senderId ?? null
-      };
-    })
+    ...(await Promise.all(incomingInvitePromises))
   ];
 
   const attendedEventIds = new Set(attendedEvents.map((event) => event.eventId));
@@ -243,8 +262,9 @@ export const createEvent = onCall(async (request) => {
 });
 
 export const listFeed = onCall(async (request) => {
-  const authUid = request.auth?.uid ?? null;
-  console.log("[Function] listFeed query", request.data);
+  // Support both authenticated users and explicit userId parameter (for dev/testing without Firebase Auth)
+  const authUid = request.auth?.uid ?? (request.data?.userId as string | undefined) ?? null;
+  console.log("[Function] listFeed query", request.data, "authUid:", authUid);
   const queryParams = parseRequest(feedQuerySchema, request.data ?? {}) as FeedQuery;
 
   let query = db
@@ -319,24 +339,52 @@ export const listFeed = onCall(async (request) => {
   if (authUid) {
     attendeeIds.delete(authUid);
   }
-  const friendDocs = await Promise.all(
-    Array.from(attendeeIds).map(async (friendId) => {
-      const snap = await db.collection("users").doc(friendId).get();
-      if (!snap.exists) {
-        return null;
-      }
-      const userData = snap.data() ?? {};
+  // Fetch the user's actual friends from the friends collection
+  let friendsList: Array<{ id: string; displayName: string; photoURL: string | null }> = [];
+
+  if (authUid) {
+    const friendsQuery = await db.collection("friends")
+      .where("userId", "==", authUid)
+      .where("status", "==", "active")
+      .get();
+
+    const friendIds = friendsQuery.docs.map(doc => (doc.data() as any).friendId);
+
+    const friendPromises = friendIds.map(async (friendId) => {
+      const userSnap = await db.collection("users").doc(friendId).get();
+      if (!userSnap.exists) return null;
+      const userData = userSnap.data() ?? {};
       return {
         id: friendId,
         displayName: userData.displayName ?? "Friend",
         photoURL: userData.photoURL ?? null
       };
-    })
-  );
+    });
 
-  const friends = friendDocs.filter((doc): doc is { id: string; displayName: string; photoURL: string | null } => doc !== null);
+    const friendDocs = await Promise.all(friendPromises);
+    friendsList = friendDocs.filter((doc): doc is { id: string; displayName: string; photoURL: string | null } => doc !== null);
+  }
 
-  return { events, friends };
+  // If no friends found or user not authenticated, include attendees as fallback
+  if (friendsList.length === 0) {
+    const friendDocs = await Promise.all(
+      Array.from(attendeeIds).map(async (friendId) => {
+        const snap = await db.collection("users").doc(friendId).get();
+        if (!snap.exists) {
+          return null;
+        }
+        const userData = snap.data() ?? {};
+        return {
+          id: friendId,
+          displayName: userData.displayName ?? "Friend",
+          photoURL: userData.photoURL ?? null
+        };
+      })
+    );
+    friendsList = friendDocs.filter((doc): doc is { id: string; displayName: string; photoURL: string | null } => doc !== null);
+  }
+
+  return { events, friends: friendsList };
 });
 
 export const rsvpEvent = onCall(async (request) => {
@@ -538,5 +586,207 @@ export const listAttendedEvents = onCall(async (request) => {
   } catch (error) {
     console.error("[Function] listAttendedEvents error", error);
     throw new HttpsError("internal", (error as Error).message ?? "Failed to fetch events.");
+  }
+});
+
+// ===========================
+// Social APIs
+// ===========================
+
+export const shareEvent = onCall(async (request) => {
+  const payload = parseRequest(shareEventSchema, request.data);
+  console.log("[Function] shareEvent payload", payload);
+
+  try {
+    // Verify event exists
+    const eventRef = db.collection("events").doc(payload.eventId);
+    const eventSnap = await eventRef.get();
+    if (!eventSnap.exists) {
+      throw new HttpsError("not-found", "Event not found");
+    }
+
+    // Get current sharedInviteFriendIds
+    const eventData = eventSnap.data();
+    const currentShared = (eventData?.sharedInviteFriendIds as string[]) || [];
+
+    // Merge with new recipients (deduplicate)
+    const updatedShared = Array.from(new Set([...currentShared, ...payload.recipientIds]));
+
+    // Update event with new shared list
+    await eventRef.update({
+      sharedInviteFriendIds: updatedShared,
+      updatedAt: Timestamp.now()
+    });
+
+    console.log("[Function] shareEvent success", {
+      eventId: payload.eventId,
+      newRecipients: payload.recipientIds.length,
+      totalShared: updatedShared.length
+    });
+
+    return {
+      eventId: payload.eventId,
+      sharedWith: updatedShared.length
+    };
+  } catch (error) {
+    console.error("[Function] shareEvent error", error);
+    if (error instanceof HttpsError) throw error;
+    throw new HttpsError("internal", (error as Error).message ?? "Failed to share event.");
+  }
+});
+
+export const sendFriendInvite = onCall(async (request) => {
+  const payload = parseRequest(friendInviteSchema, request.data);
+  console.log("[Function] sendFriendInvite payload", payload);
+
+  try {
+    // Verify sender exists
+    const senderRef = db.collection("users").doc(payload.senderId);
+    const senderSnap = await senderRef.get();
+    if (!senderSnap.exists) {
+      throw new HttpsError("not-found", "Sender not found");
+    }
+
+    // Check if recipient already has an account
+    let recipientUserId: string | null = null;
+    if (payload.recipientPhone) {
+      const userQuery = await db.collection("users")
+        .where("phoneNumber", "==", payload.recipientPhone)
+        .limit(1)
+        .get();
+      if (!userQuery.empty) {
+        recipientUserId = userQuery.docs[0].id;
+      }
+    } else if (payload.recipientEmail) {
+      const userQuery = await db.collection("users")
+        .where("email", "==", payload.recipientEmail)
+        .limit(1)
+        .get();
+      if (!userQuery.empty) {
+        recipientUserId = userQuery.docs[0].id;
+      }
+    }
+
+    // Create invite document
+    const inviteRef = db.collection("friendInvites").doc();
+    const inviteData: FriendInviteDoc = {
+      senderId: payload.senderId,
+      recipientPhone: payload.recipientPhone || null,
+      recipientEmail: payload.recipientEmail || null,
+      recipientUserId: recipientUserId,
+      status: "pending",
+      createdAt: Timestamp.now(),
+      updatedAt: Timestamp.now()
+    };
+
+    await inviteRef.set(inviteData);
+
+    console.log("[Function] sendFriendInvite success", {
+      inviteId: inviteRef.id,
+      foundExistingUser: !!recipientUserId
+    });
+
+    return {
+      inviteId: inviteRef.id,
+      recipientUserId: recipientUserId
+    };
+  } catch (error) {
+    console.error("[Function] sendFriendInvite error", error);
+    if (error instanceof HttpsError) throw error;
+    throw new HttpsError("internal", (error as Error).message ?? "Failed to send friend invite.");
+  }
+});
+
+export const listFriends = onCall(async (request) => {
+  const payload = parseRequest(listFriendsSchema, request.data);
+  console.log("[Function] listFriends payload", payload);
+
+  try {
+    // Fetch active friends
+    const friendsQuery = await db.collection("friends")
+      .where("userId", "==", payload.userId)
+      .where("status", "==", "active")
+      .get();
+
+    const friendIds = friendsQuery.docs.map(doc => (doc.data() as FriendDoc).friendId);
+
+    // Fetch friend user details
+    const friends = await Promise.all(
+      friendIds.map(async (friendId) => {
+        const userSnap = await db.collection("users").doc(friendId).get();
+        if (!userSnap.exists) return null;
+        const userData = userSnap.data() as UserDoc;
+        return {
+          id: friendId,
+          displayName: userData.displayName,
+          photoURL: userData.photoURL || null
+        };
+      })
+    );
+
+    const validFriends = friends.filter(f => f !== null);
+
+    // Optionally fetch pending invites
+    let pendingInvites: Array<{
+      id: string;
+      displayName: string;
+      direction: "sent" | "received";
+      contact: string | null;
+    }> = [];
+
+    if (payload.includeInvites) {
+      // Sent invites
+      const sentQuery = await db.collection("friendInvites")
+        .where("senderId", "==", payload.userId)
+        .where("status", "==", "pending")
+        .get();
+
+      // Received invites
+      const receivedQuery = await db.collection("friendInvites")
+        .where("recipientUserId", "==", payload.userId)
+        .where("status", "==", "pending")
+        .get();
+
+      const sentInvites = await Promise.all(
+        sentQuery.docs.map(async (doc) => {
+          const data = doc.data() as FriendInviteDoc;
+          return {
+            id: doc.id,
+            displayName: data.recipientPhone || data.recipientEmail || "Unknown",
+            direction: "sent" as const,
+            contact: data.recipientPhone || data.recipientEmail || null
+          };
+        })
+      );
+
+      const receivedInvites = await Promise.all(
+        receivedQuery.docs.map(async (doc) => {
+          const data = doc.data() as FriendInviteDoc;
+          const senderSnap = await db.collection("users").doc(data.senderId).get();
+          const senderData = senderSnap.exists ? (senderSnap.data() as UserDoc) : null;
+          return {
+            id: doc.id,
+            displayName: senderData?.displayName || "Unknown",
+            direction: "received" as const,
+            contact: data.recipientPhone || data.recipientEmail || null
+          };
+        })
+      );
+
+      pendingInvites = [...sentInvites, ...receivedInvites];
+    }
+
+    console.log("[Function] listFriends success", {
+      friendCount: validFriends.length,
+      inviteCount: pendingInvites.length
+    });
+
+    return {
+      friends: validFriends,
+      pendingInvites: pendingInvites
+    };
+  } catch (error) {
+    console.error("[Function] listFriends error", error);
+    throw new HttpsError("internal", (error as Error).message ?? "Failed to fetch friends.");
   }
 });

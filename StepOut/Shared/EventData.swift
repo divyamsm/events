@@ -109,42 +109,28 @@ extension Event {
 enum EventRepository {
     static let currentUser = UserSession.sample.user
 
-    private static let friendDisha = Friend(
-        id: UUID(uuidString: "F7B10C18-5A0F-4C16-ABF3-8DFD52E3E570")!,
-        name: "Disha Kapoor",
+    private static let friendAlice = Friend(
+        id: UUID(uuidString: "A1B2C3D4-E5F6-7890-ABCD-EF1234567890")!,
+        name: "Alice Johnson",
         avatarURL: nil
     )
 
-    private static let friendDivyam = Friend(
-        id: UUID(uuidString: "02D4F551-8C88-4A58-9783-BA5B4B4AD9B6")!,
-        name: "Divyam Mehta",
+    private static let friendBob = Friend(
+        id: UUID(uuidString: "F1E2D3C4-B5A6-9870-FEDC-BA9876543210")!,
+        name: "Bob Smith",
         avatarURL: nil
     )
 
-    private static let friendShreyas = Friend(
-        id: UUID(uuidString: "A9A796D4-5EE0-4FC9-9C03-FA041E3C0E9B")!,
-        name: "Shreyas Iyer",
-        avatarURL: nil
-    )
-
-    private static let friendJordan = Friend(
-        id: UUID(uuidString: "1E3FC403-346F-4ADC-8B3E-359BAAF343B5")!,
-        name: "Jordan Lee",
-        avatarURL: nil
-    )
-
-    private static let friendMaya = Friend(
-        id: UUID(uuidString: "6B7C5D7E-1D90-4FD0-8B7E-75E0A9A9B415")!,
-        name: "Maya Chen",
+    private static let friendDavid = Friend(
+        id: UUID(uuidString: "AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE")!,
+        name: "David Chen",
         avatarURL: nil
     )
 
     static let friends: [Friend] = [
-        friendDisha,
-        friendDivyam,
-        friendShreyas,
-        friendJordan,
-        friendMaya
+        friendAlice,
+        friendBob,
+        friendDavid
     ]
 
     static let sampleEvents: [Event] = [
@@ -155,12 +141,12 @@ enum EventRepository {
             location: "San Francisco, CA",
             imageURL: URL(string: "https://images.unsplash.com/photo-1521737604893-d14cc237f11d?auto=format&fit=crop&w=1400&q=80")!,
             coordinate: CLLocationCoordinate2D(latitude: 37.776_321, longitude: -122.417_864),
-            ownerId: friendDisha.id,
-            attendingFriendIDs: [friendDisha.id, friendDivyam.id],
-            invitedByFriendIDs: [friendShreyas.id],
+            ownerId: friendAlice.id,
+            attendingFriendIDs: [friendAlice.id, friendBob.id],
+            invitedByFriendIDs: [friendDavid.id],
             arrivalTimes: [
-                friendDisha.id: .now.addingTimeInterval(60 * 60 * 24 * 2 + 900),
-                friendDivyam.id: .now.addingTimeInterval(60 * 60 * 24 * 2 + 1800)
+                friendAlice.id: .now.addingTimeInterval(60 * 60 * 24 * 2 + 900),
+                friendBob.id: .now.addingTimeInterval(60 * 60 * 24 * 2 + 1800)
             ]
         ),
         Event(
@@ -170,11 +156,11 @@ enum EventRepository {
             location: "Remote",
             imageURL: URL(string: "https://images.unsplash.com/photo-1522202176988-66273c2fd55f?auto=format&fit=crop&w=1400&q=80")!,
             coordinate: nil,
-            ownerId: friendMaya.id,
-            attendingFriendIDs: [friendMaya.id],
+            ownerId: friendBob.id,
+            attendingFriendIDs: [friendBob.id],
             invitedByFriendIDs: [],
             arrivalTimes: [
-                friendMaya.id: .now.addingTimeInterval(60 * 60 * 24 * 7 + 1200)
+                friendBob.id: .now.addingTimeInterval(60 * 60 * 24 * 7 + 1200)
             ]
         ),
         Event(
@@ -184,13 +170,13 @@ enum EventRepository {
             location: "New York, NY",
             imageURL: URL(string: "https://images.unsplash.com/photo-1545239351-1141bd82e8a6?auto=format&fit=crop&w=1400&q=80")!,
             coordinate: CLLocationCoordinate2D(latitude: 40.7128, longitude: -74.006),
-            ownerId: friendJordan.id,
-            attendingFriendIDs: [friendJordan.id],
+            ownerId: friendDavid.id,
+            attendingFriendIDs: [friendDavid.id],
             invitedByFriendIDs: [],
             sharedInviteFriendIDs: [currentUser.id],
             privacy: .private,
             arrivalTimes: [
-                friendJordan.id: .now.addingTimeInterval(60 * 60 * 24 * 14 + 600)
+                friendDavid.id: .now.addingTimeInterval(60 * 60 * 24 * 14 + 600)
             ]
         )
     ]

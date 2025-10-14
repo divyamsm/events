@@ -304,8 +304,13 @@ final class ProfileViewModel: ObservableObject {
             errorMessage = nil
             logDebug("loadProfile succeeded", extra: [
                 "friends": profile?.friends.count ?? 0,
+                "pendingInvites": profile?.pendingInvites.count ?? 0,
                 "attended": profile?.attendedEvents.count ?? 0
             ])
+            print("✅ [ProfileView] Loaded profile with \(profile?.pendingInvites.count ?? 0) pending invites")
+            profile?.pendingInvites.forEach { invite in
+                print("  - \(invite.direction.rawValue): \(invite.name)")
+            }
         } catch {
             logFailure(context: "loadProfile", error: error)
             errorMessage = readableMessage(for: error)
@@ -925,6 +930,11 @@ private struct FriendsSheetView: View {
                 }
 
                 Section("Pending invites") {
+#if DEBUG
+                    Text("Debug: \(pendingInvites.count) invites loaded")
+                        .font(.caption2)
+                        .foregroundStyle(.orange)
+#endif
                     if pendingInvites.isEmpty {
                         Text("No invites in flight.")
                             .font(.footnote)

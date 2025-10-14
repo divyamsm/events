@@ -94,9 +94,7 @@ final class EventFeedViewModel: ObservableObject {
         defer { isLoading = false }
 
         do {
-            print("[Feed] loading feed…")
             let snapshot = try await backend.fetchFeed(for: session.user, near: session.currentLocation)
-            print("[Feed] fetched events: \(snapshot.events.count), friends: \(snapshot.friends.count)")
             friendsCatalog = snapshot.friends
 
             var combinedEvents = appState.createdEvents
