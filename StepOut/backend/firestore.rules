@@ -16,8 +16,24 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    // Username collection for uniqueness checking
+    match /usernames/{username} {
+      // Anyone can read to check availability during signup
+      allow read: if true;
+      // Only the owner can create their username reservation
+      allow create: if isSignedIn() && request.resource.data.uid == request.auth.uid;
+      // Usernames cannot be updated or deleted
+      allow update, delete: if false;
+    }
+
     match /events/{eventId} {
-      allow read: if resource.data.visibility == "public";
+      // Users can read events if:
+      // - Event is public, OR
+      // - User is the owner, OR
+      // - User is invited (in invitedUserIds array)
+      allow read: if resource.data.visibility == "public"
+                  || request.auth.uid == resource.data.ownerId
+                  || (request.auth.uid in resource.data.get('invitedUserIds', []));
 
       allow create: if isSignedIn()
         && request.resource.data.ownerId == request.auth.uid;

@@ -135,9 +135,16 @@ enum WidgetTimelineBridge {
     }
 
     static func fallbackSummaries() -> [WidgetEventSummary] {
+        // Create a placeholder user for widget fallback
+        let placeholderUser = Friend(
+            id: UUID(uuidString: "B2A4A608-1D12-4AC3-8C6C-5C9F0A2F9942")!,
+            name: "User",
+            avatarURL: nil
+        )
+
         let lookup = buildFriendLookup(
             friends: EventRepository.friends,
-            currentUser: EventRepository.currentUser
+            currentUser: placeholderUser
         )
 
         return EventRepository.sampleEvents.map { event in
@@ -151,7 +158,7 @@ enum WidgetTimelineBridge {
                 friendsGoing: attendeeSummaries(
                     for: event,
                     lookup: lookup,
-                    currentUser: EventRepository.currentUser
+                    currentUser: placeholderUser
                 )
             )
         }

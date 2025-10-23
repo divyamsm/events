@@ -24,7 +24,7 @@ final class MockEventBackend: EventBackend {
     init(
         seedEvents: [Event] = EventRepository.sampleEvents,
         seedFriends: [Friend] = EventRepository.friends,
-        currentUser: Friend = EventRepository.currentUser
+        currentUser: Friend
     ) {
         var combinedFriends = seedFriends
         if combinedFriends.contains(where: { $0.id == currentUser.id }) == false {

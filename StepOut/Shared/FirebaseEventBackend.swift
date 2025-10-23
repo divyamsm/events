@@ -29,7 +29,8 @@ final class FirebaseEventBackend: EventBackend {
     }
 
     func sendInvite(for eventID: UUID, from sender: Friend, to recipients: [Friend]) async throws {
-        throw NSError(domain: "FirebaseEventBackend", code: -2, userInfo: [NSLocalizedDescriptionKey: "Invites are not supported yet."])
+        let recipientIDs = recipients.map { $0.id }
+        try await shareEvent(eventID: eventID, senderID: sender.id, recipientIDs: recipientIDs)
     }
 
     func createEvent(
@@ -167,11 +168,12 @@ final class FirebaseEventBackend: EventBackend {
         }
     }
 
-    func shareEvent(eventID: UUID, recipientIDs: [UUID]) async throws {
+    func shareEvent(eventID: UUID, senderID: UUID, recipientIDs: [UUID]) async throws {
         let callable = functions.httpsCallable("shareEvent")
         let canonicalID = eventIdentifierMap[eventID] ?? eventID.uuidString.uppercased()
         let payload: [String: Any] = [
             "eventId": canonicalID,
+            "senderId": senderID.uuidString.uppercased(),
             "recipientIds": recipientIDs.map { $0.uuidString.uppercased() }
         ]
         print("[Backend] calling shareEvent", payload)

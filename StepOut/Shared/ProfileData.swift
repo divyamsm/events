@@ -75,10 +75,8 @@ enum ProfileRepository {
     static let sampleProfile: UserProfile = {
         let friends = EventRepository.friends
 
-        let currentUser = EventRepository.currentUser
-
         return UserProfile(
-            id: currentUser.id,
+            id: UUID(uuidString: "B2A4A608-1D12-4AC3-8C6C-5C9F0A2F9942")!,
             displayName: "Bharath Raghunath",
             username: "@bharathraghunath",
             bio: "Building a shared event feed with friends.",

@@ -58,12 +58,11 @@ final class EventFeedViewModel: ObservableObject {
     }
 
     private let backend: EventBackend
-    private let session: UserSession
+    private var session: UserSession
     private let appState: AppState
     private var friendsCatalog: [Friend] = EventRepository.friends
     private var latestEvents: [Event] = []
     private var authObserver: NSObjectProtocol?
-    private var isEnsuringSignIn = false
 
     var friendOptions: [Friend] {
         friendsCatalog.isEmpty ? EventRepository.friends : friendsCatalog
@@ -85,6 +84,13 @@ final class EventFeedViewModel: ObservableObject {
     deinit {
         if let authObserver {
             NotificationCenter.default.removeObserver(authObserver)
+        }
+    }
+
+    func updateSession(_ newSession: UserSession) {
+        self.session = newSession
+        Task {
+            await loadFeed()
         }
     }
 
@@ -121,30 +127,6 @@ final class EventFeedViewModel: ObservableObject {
             persistWidgetSnapshot()
             presentError = nil
         } catch {
-#if canImport(FirebaseFunctions)
-            if let functionsError = error as NSError?, functionsError.domain == FunctionsErrorDomain,
-               functionsError.code == FunctionsErrorCode.unauthenticated.rawValue {
-#if canImport(FirebaseAuth)
-#if DEBUG
-                guard isEnsuringSignIn == false else { return }
-                isEnsuringSignIn = true
-                presentError = "Signing in…"
-                Task { @MainActor [weak self] in
-                    guard let self else { return }
-                    defer { self.isEnsuringSignIn = false }
-                    do {
-                        try await self.ensureDebugSignIn()
-                        await self.loadFeed()
-                    } catch {
-                        print("[Feed] debug sign-in failed: \(error.localizedDescription)")
-                        self.presentError = "Couldn't refresh events. Please try again."
-                    }
-                }
-                return
-#endif
-#endif
-            }
-#endif
             print("[Feed] fetch failed: \(error.localizedDescription)")
             presentError = "Couldn't refresh events. Please try again."
         }
@@ -162,7 +144,11 @@ final class EventFeedViewModel: ObservableObject {
             return
         }
 
-        if feedEvent.isEditable {
+        do {
+            // Always call backend to persist shares to Firebase
+            try await backend.sendInvite(for: feedEvent.event.id, from: session.user, to: recipients)
+
+            // Update local state for immediate UI feedback
             let ids = recipients.map { $0.id }
             if let createdIndex = appState.createdEvents.firstIndex(where: { $0.id == feedEvent.event.id }) {
                 var event = appState.createdEvents[createdIndex]
@@ -178,14 +164,6 @@ final class EventFeedViewModel: ObservableObject {
             persistWidgetSnapshot()
             shareConfirmation = "Sent to \(recipients.count) friend\(recipients.count == 1 ? "" : "s")"
             shareContext = nil
-            return
-        }
-
-        do {
-            try await backend.sendInvite(for: feedEvent.event.id, from: session.user, to: recipients)
-            shareConfirmation = "Sent to \(recipients.count) friend\(recipients.count == 1 ? "" : "s")"
-            shareContext = nil
-            await loadFeed()
         } catch {
             presentError = "Couldn't send invites. Please try again."
         }
@@ -578,26 +556,6 @@ final class EventFeedViewModel: ObservableObject {
         }
     }
 
-#if canImport(FirebaseAuth)
-#if DEBUG
-    private func ensureDebugSignIn() async throws {
-        if let current = Auth.auth().currentUser,
-           current.email == "you@example.com" {
-            return
-        }
-
-        try await withCheckedThrowingContinuation { continuation in
-            Auth.auth().signIn(withEmail: "you@example.com", password: "StepOut123!") { _, error in
-                if let error {
-                    continuation.resume(throwing: error)
-                } else {
-                    continuation.resume(returning: ())
-                }
-            }
-        }
-    }
-#endif
-#endif
 }
     struct ToastEntry: Identifiable {
         let id = UUID()

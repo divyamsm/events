@@ -14,21 +14,15 @@ struct Friend: Identifiable, Hashable {
     }
 }
 
-struct UserSession {
+struct UserSession: Equatable {
     let user: Friend
     let currentLocation: CLLocation
 
-    static let sample: UserSession = {
-        let user = Friend(
-            id: UUID(uuidString: "B2A4A608-1D12-4AC3-8C6C-5C9F0A2F9942")!,
-            name: "You",
-            avatarURL: nil
-        )
-        return UserSession(
-            user: user,
-            currentLocation: CLLocation(latitude: 37.7749, longitude: -122.4194)
-        )
-    }()
+    static func == (lhs: UserSession, rhs: UserSession) -> Bool {
+        lhs.user.id == rhs.user.id &&
+        lhs.currentLocation.coordinate.latitude == rhs.currentLocation.coordinate.latitude &&
+        lhs.currentLocation.coordinate.longitude == rhs.currentLocation.coordinate.longitude
+    }
 }
 
 struct Event: Identifiable, Hashable {
@@ -107,8 +101,6 @@ extension Event {
 }
 
 enum EventRepository {
-    static let currentUser = UserSession.sample.user
-
     private static let friendAlice = Friend(
         id: UUID(uuidString: "A1B2C3D4-E5F6-7890-ABCD-EF1234567890")!,
         name: "Alice Johnson",
@@ -173,7 +165,7 @@ enum EventRepository {
             ownerId: friendDavid.id,
             attendingFriendIDs: [friendDavid.id],
             invitedByFriendIDs: [],
-            sharedInviteFriendIDs: [currentUser.id],
+            sharedInviteFriendIDs: [],
             privacy: .private,
             arrivalTimes: [
                 friendDavid.id: .now.addingTimeInterval(60 * 60 * 24 * 14 + 600)

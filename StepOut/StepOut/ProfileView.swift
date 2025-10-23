@@ -1,6 +1,7 @@
 import SwiftUI
 import UIKit
 import CoreLocation
+import FirebaseAuth
 #if canImport(FirebaseFunctions)
 import FirebaseFunctions
 #endif
@@ -52,10 +53,37 @@ struct RemoteProfileResponse {
     let pendingInvites: [RemoteInvite]
     let attendedEvents: [RemoteAttendedEvent]
 
+    // Convert Firebase UID (string) to UUID for compatibility with existing code
+    static func uuidFromFirebaseUID(_ uid: String) -> UUID {
+        // Hash the Firebase UID to create a consistent UUID
+        var hasher = Hasher()
+        hasher.combine(uid)
+        let hash = abs(hasher.finalize())
+
+        // Convert hash to UUID format
+        let uuidString = String(format: "%08X-%04X-%04X-%04X-%012X",
+                               (hash >> 96) & 0xFFFFFFFF,
+                               (hash >> 80) & 0xFFFF,
+                               (hash >> 64) & 0xFFFF,
+                               (hash >> 48) & 0xFFFF,
+                               hash & 0xFFFFFFFFFFFF)
+
+        return UUID(uuidString: uuidString) ?? UUID()
+    }
+
     init?(dictionary: [String: Any]) {
         guard let profileDict = dictionary["profile"] as? [String: Any],
-              let userIdString = profileDict["userId"] as? String,
-              let userUUID = UUID(uuidString: userIdString) else { return nil }
+              let userIdString = profileDict["userId"] as? String else { return nil }
+
+        // Convert Firebase UID to UUID (Firebase UIDs are not valid UUIDs)
+        let userUUID: UUID
+        if let uuid = UUID(uuidString: userIdString) {
+            // Already a valid UUID
+            userUUID = uuid
+        } else {
+            // Convert Firebase UID to deterministic UUID
+            userUUID = Self.uuidFromFirebaseUID(userIdString)
+        }
 
         let displayName = profileDict["displayName"] as? String ?? "Friend"
         let username = profileDict["username"] as? String
@@ -99,7 +127,8 @@ struct RemoteProfileResponse {
 
         if let friendsArray = dictionary["friends"] as? [[String: Any]] {
             friends = friendsArray.compactMap { item in
-                guard let idString = item["id"] as? String, let uuid = UUID(uuidString: idString) else { return nil }
+                guard let idString = item["id"] as? String else { return nil }
+                let uuid = UUID(uuidString: idString) ?? Self.uuidFromFirebaseUID(idString)
                 let name = item["displayName"] as? String ?? "Friend"
                 let photoURL = (item["photoURL"] as? String).flatMap(URL.init(string:))
                 let status = item["status"] as? String ?? "on-app"
@@ -111,7 +140,8 @@ struct RemoteProfileResponse {
 
         if let invitesArray = dictionary["pendingInvites"] as? [[String: Any]] {
             pendingInvites = invitesArray.compactMap { item in
-                guard let idString = item["id"] as? String, let uuid = UUID(uuidString: idString) else { return nil }
+                guard let idString = item["id"] as? String else { return nil }
+                let uuid = UUID(uuidString: idString) ?? Self.uuidFromFirebaseUID(idString)
                 let displayName = item["displayName"] as? String ?? "Friend"
                 let directionRaw = item["direction"] as? String ?? "sent"
                 let direction = RemoteInvite.Direction(rawValue: directionRaw) ?? .sent
@@ -124,7 +154,8 @@ struct RemoteProfileResponse {
 
         if let attendedArray = dictionary["attendedEvents"] as? [[String: Any]] {
             attendedEvents = attendedArray.compactMap { item in
-                guard let idString = item["eventId"] as? String, let uuid = UUID(uuidString: idString) else { return nil }
+                guard let idString = item["eventId"] as? String else { return nil }
+                let uuid = UUID(uuidString: idString) ?? Self.uuidFromFirebaseUID(idString)
                 let title = item["title"] as? String ?? "Event"
                 let location = item["location"] as? String ?? ""
                 let coverImagePath = item["coverImagePath"] as? String
@@ -185,7 +216,8 @@ final class FirebaseProfileBackend: ProfileBackend {
             throw NSError(domain: "FirebaseProfileBackend", code: -1, userInfo: [NSLocalizedDescriptionKey: "Malformed listAttendedEvents response"])
         }
         return events.compactMap { item in
-            guard let idString = item["eventId"] as? String, let uuid = UUID(uuidString: idString) else { return nil }
+            guard let idString = item["eventId"] as? String else { return nil }
+            let uuid = UUID(uuidString: idString) ?? RemoteProfileResponse.uuidFromFirebaseUID(idString)
             let title = item["title"] as? String ?? "Event"
             let location = item["location"] as? String ?? ""
             let coverImagePath = item["coverImagePath"] as? String
@@ -271,7 +303,7 @@ final class ProfileViewModel: ObservableObject {
     private let backend: ProfileBackend
     private let userId: UUID
 
-    init(userId: UUID = UserSession.sample.user.id, backend: ProfileBackend? = nil) {
+    init(userId: UUID, backend: ProfileBackend? = nil) {
         self.userId = userId
 #if canImport(FirebaseFunctions)
         self.backend = backend ?? FirebaseProfileBackend()
@@ -438,13 +470,25 @@ struct ProfileView: View {
     @EnvironmentObject private var appState: AppState
     private let calendar = ProfileRepository.calendar
     private let focusMonth = ProfileRepository.focusMonth
+    let authManager: AuthenticationManager?
 
-    @StateObject private var viewModel = ProfileViewModel()
+    @StateObject private var viewModel: ProfileViewModel
     @State private var showSettings = false
     @State private var showFriends = false
     @State private var showEditProfile = false
     @State private var selectedDayEvents: [AttendedEvent]?
     @State private var selectedDate: Date?
+    @State private var showSignOutConfirmation = false
+
+    init(authManager: AuthenticationManager? = nil) {
+        self.authManager = authManager
+
+        // Get userId from authManager if authenticated, otherwise use a placeholder
+        // Note: The backend now uses the authenticated user's UID directly,
+        // so this userId is only used for compatibility with the UUID-based ProfileViewModel
+        let userId = authManager?.currentSession?.user.id ?? UUID()
+        _viewModel = StateObject(wrappedValue: ProfileViewModel(userId: userId))
+    }
 
     var body: some View {
         content
@@ -490,18 +534,57 @@ struct ProfileView: View {
             }
         }
         .sheet(isPresented: $showSettings) {
-            VStack(spacing: 16) {
-                Text("Settings")
-                    .font(.headline)
-                Text("Settings will be available once auth is enabled.")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                Button("Close") { showSettings = false }
-                    .buttonStyle(.borderedProminent)
+            NavigationStack {
+                Form {
+                    Section("Appearance") {
+                        Picker("Theme", selection: $appState.selectedTheme) {
+                            ForEach(AppState.AppTheme.allCases) { theme in
+                                Text(theme.title).tag(theme)
+                            }
+                        }
+                        .pickerStyle(.segmented)
+                    }
+
+                    Section("Social") {
+                        NavigationLink(destination: InviteFriendsView()) {
+                            Label("Invite Friends", systemImage: "person.badge.plus")
+                        }
+
+                        NavigationLink(destination: EventPreferencesView(isOnboarding: false, onComplete: nil)) {
+                            Label("Event Preferences", systemImage: "star")
+                        }
+                    }
+
+                    Section("Account") {
+                        Button(action: { showSignOutConfirmation = true }) {
+                            HStack {
+                                Text("Sign Out")
+                                    .foregroundStyle(.red)
+                                Spacer()
+                                Image(systemName: "arrow.right.square")
+                                    .foregroundStyle(.red)
+                            }
+                        }
+                    }
+                }
+                .navigationTitle("Settings")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button("Done") { showSettings = false }
+                    }
+                }
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .padding()
-            .presentationDetents([.medium])
+            .presentationDetents([.medium, .large])
+            .alert("Sign Out", isPresented: $showSignOutConfirmation) {
+                Button("Cancel", role: .cancel) {}
+                Button("Sign Out", role: .destructive) {
+                    authManager?.signOut()
+                    showSettings = false
+                }
+            } message: {
+                Text("Are you sure you want to sign out?")
+            }
         }
         .alert("Heads up", isPresented: Binding(get: { viewModel.errorMessage != nil }, set: { value in
             if !value { viewModel.errorMessage = nil }
@@ -525,18 +608,31 @@ struct ProfileView: View {
     @ViewBuilder
     private var content: some View {
         if let profile = viewModel.profile {
-            ScrollView(.vertical, showsIndicators: false) {
-                VStack(spacing: 24) {
-                    headerSection(profile: profile)
-                    actionRow(profile: profile)
-                    calendarSection(profile: profile)
-                    statsStrip(profile: profile)
+            ZStack {
+                ScrollView(.vertical, showsIndicators: false) {
+                    VStack(spacing: 24) {
+                        headerSection(profile: profile)
+                        actionRow(profile: profile)
+                        calendarSection(profile: profile)
+                        statsStrip(profile: profile)
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.top, 20)
+                    .padding(.bottom, 40)
                 }
-                .padding(.horizontal, 20)
-                .padding(.vertical, 28)
-            }
-            .refreshable {
-                await viewModel.loadProfile()
+                .refreshable {
+                    await viewModel.loadProfile()
+                }
+                .transaction { transaction in
+                    transaction.animation = nil
+                }
+                .blur(radius: Auth.auth().currentUser?.isEmailVerified == false ? 10 : 0)
+                .allowsHitTesting(Auth.auth().currentUser?.isEmailVerified != false)
+
+                // Email verification overlay
+                if let user = Auth.auth().currentUser, !user.isEmailVerified {
+                    EmailVerificationOverlay()
+                }
             }
         } else if viewModel.isLoading {
             VStack(spacing: 16) {
@@ -560,27 +656,29 @@ struct ProfileView: View {
     }
 
     private func headerSection(profile: UserProfile) -> some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack(alignment: .center, spacing: 16) {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(profile.displayName)
-                        .font(.title.bold())
-                    Text(profile.username)
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(Color.secondary)
-                    if profile.bio.isEmpty == false {
-                        Text(profile.bio)
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
+        HStack(alignment: .center, spacing: 16) {
+            VStack(alignment: .leading, spacing: 8) {
+                Text(profile.displayName)
+                    .font(.title.bold())
+                    .lineLimit(1)
+                Text(profile.username)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(Color.secondary)
+                    .lineLimit(1)
+                if profile.bio != "Tap to add a bio" && profile.bio.isEmpty == false {
+                    Text(profile.bio)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .lineLimit(2)
                 }
-                Spacer()
-                avatarView(for: profile)
             }
+            .frame(maxHeight: .infinity, alignment: .leading)
+            Spacer()
+            avatarView(for: profile)
         }
         .padding(20)
-        .frame(maxWidth: .infinity)
+        .frame(maxWidth: .infinity, minHeight: 108)
         .background(
             RoundedRectangle(cornerRadius: 28, style: .continuous)
                 .fill(Color(.secondarySystemBackground))
@@ -588,7 +686,7 @@ struct ProfileView: View {
     }
 
     private func actionRow(profile: UserProfile) -> some View {
-        HStack(spacing: 18) {
+        HStack(spacing: 12) {
             Button { showFriends.toggle() } label: {
                 actionButtonLabel(
                     systemImage: "person.2.fill",
@@ -607,6 +705,7 @@ struct ProfileView: View {
 
             Spacer()
         }
+        .frame(height: 44) // Fixed height for consistency
     }
 
     private func actionButtonLabel(systemImage: String, title: String) -> some View {
@@ -639,9 +738,9 @@ struct ProfileView: View {
                 selectedDayEvents = events
             }
         )
-        .fixedSize(horizontal: false, vertical: true)
         .padding(20)
         .frame(maxWidth: .infinity)
+        .fixedSize(horizontal: false, vertical: true)
         .background(
             RoundedRectangle(cornerRadius: 30, style: .continuous)
                 .fill(Color(.secondarySystemBackground))
@@ -668,9 +767,10 @@ struct ProfileView: View {
                 value: "\(profile.stats.invitesSent)"
             )
         }
-        .frame(maxWidth: .infinity)
+        .frame(maxWidth: .infinity, minHeight: 90)
         .padding(.vertical, 16)
         .padding(.horizontal, 20)
+        .fixedSize(horizontal: false, vertical: true)
         .background(
             RoundedRectangle(cornerRadius: 22, style: .continuous)
                 .fill(Color(.secondarySystemBackground))
@@ -680,39 +780,39 @@ struct ProfileView: View {
     private func statTile(icon: String, title: String, value: String) -> some View {
         VStack(spacing: 6) {
             Image(systemName: icon)
+                .font(.system(size: 18))
                 .foregroundStyle(.primary)
+                .frame(height: 18)
             Text(value)
                 .font(.headline.bold())
+                .frame(height: 20)
             Text(title)
                 .font(.caption)
                 .foregroundStyle(.secondary)
+                .frame(height: 16)
         }
         .frame(maxWidth: .infinity)
     }
 
-    @ViewBuilder
     private func avatarView(for profile: UserProfile) -> some View {
-        if let url = profile.photoURL {
-            AsyncImage(url: url) { phase in
-                switch phase {
-                case .success(let image):
-                    image
-                        .resizable()
-                        .scaledToFill()
-                case .empty:
-                    placeholderAvatar(text: initials(for: profile.displayName))
-                case .failure:
-                    placeholderAvatar(text: initials(for: profile.displayName))
-                @unknown default:
-                    placeholderAvatar(text: initials(for: profile.displayName))
+        Group {
+            if let url = profile.photoURL {
+                AsyncImage(url: url) { phase in
+                    switch phase {
+                    case .success(let image):
+                        image
+                            .resizable()
+                            .scaledToFill()
+                    case .empty, .failure, _:
+                        placeholderAvatar(text: initials(for: profile.displayName))
+                    }
                 }
+                .clipShape(Circle())
+            } else {
+                placeholderAvatar(text: initials(for: profile.displayName))
             }
-            .frame(width: 68, height: 68)
-            .clipShape(Circle())
-        } else {
-            placeholderAvatar(text: initials(for: profile.displayName))
-                .frame(width: 68, height: 68)
         }
+        .frame(width: 68, height: 68)
     }
 
     private func placeholderAvatar(text: String) -> some View {
@@ -778,33 +878,40 @@ private struct ProfileCalendarView: View {
         VStack(alignment: .leading, spacing: 16) {
             Text(monthFormatter.string(from: month))
                 .font(.title3.bold())
+                .frame(height: 24)
 
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 7), spacing: 12) {
-                ForEach(Array(weekdaySymbols.enumerated()), id: \.offset) { index, symbol in
-                    Text(symbol.uppercased())
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity)
-                        .id("weekday-\(index)")
+            VStack(spacing: 12) {
+                // Weekday headers
+                HStack(spacing: 10) {
+                    ForEach(Array(weekdaySymbols.enumerated()), id: \.offset) { index, symbol in
+                        Text(symbol.uppercased())
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity)
+                    }
                 }
+                .frame(height: 16)
 
-                ForEach(Array(dayGrid.enumerated()), id: \.offset) { offset, day in
-                    CalendarDayCell(
-                        day: day,
-                        events: day.flatMap { eventsByDay[$0] } ?? []
-                    )
-                    .id("day-\(offset)")
-                    .onTapGesture {
-                        if let day = day {
-                            let events = eventsByDay[day] ?? []
-                            if !events.isEmpty {
-                                onDayTapped(day, events)
+                // Calendar grid
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 7), spacing: 12) {
+                    ForEach(Array(dayGrid.enumerated()), id: \.offset) { offset, day in
+                        CalendarDayCell(
+                            day: day,
+                            events: day.flatMap { eventsByDay[$0] } ?? []
+                        )
+                        .onTapGesture {
+                            if let day = day {
+                                let events = eventsByDay[day] ?? []
+                                if !events.isEmpty {
+                                    onDayTapped(day, events)
+                                }
                             }
                         }
                     }
                 }
             }
         }
+        .fixedSize(horizontal: false, vertical: true)
     }
 }
 
@@ -838,9 +945,10 @@ private struct CalendarDayCell: View {
                     .foregroundStyle(.secondary)
             } else {
                 Color.clear
-                    .frame(height: 48)
+                    .frame(width: 40, height: 54)
             }
         }
+        .frame(height: 60) // Fixed height for all cells
     }
 
     @ViewBuilder
@@ -1033,6 +1141,151 @@ private struct EditProfileSheetView: View {
 private extension String {
     func trimmed() -> String {
         trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
+// MARK: - Email Verification Overlay
+private struct EmailVerificationOverlay: View {
+    @State private var isResending = false
+    @State private var isChecking = false
+    @State private var message: String?
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.85)
+                .ignoresSafeArea()
+
+            VStack(spacing: 32) {
+                Spacer()
+
+                // Icon
+                ZStack {
+                    Circle()
+                        .fill(Color.orange.opacity(0.2))
+                        .frame(width: 120, height: 120)
+
+                    Image(systemName: "envelope.badge.fill")
+                        .font(.system(size: 60))
+                        .foregroundColor(.orange)
+                }
+
+                // Message
+                VStack(spacing: 12) {
+                    Text("Verify Your Email")
+                        .font(.title.bold())
+                        .foregroundColor(.white)
+
+                    Text("You must verify your email before accessing this feature")
+                        .font(.body)
+                        .foregroundColor(.white.opacity(0.8))
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 40)
+                }
+
+                if let message = message {
+                    Text(message)
+                        .font(.subheadline)
+                        .foregroundColor(message.contains("✓") ? .green : .red)
+                        .transition(.opacity)
+                }
+
+                // Buttons
+                VStack(spacing: 16) {
+                    Button(action: {
+                        Task { await checkVerification() }
+                    }) {
+                        HStack {
+                            if isChecking {
+                                ProgressView()
+                                    .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                            } else {
+                                Image(systemName: "checkmark.circle.fill")
+                            }
+                            Text("I've Verified My Email")
+                                .font(.headline)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding()
+                        .background(Color.blue)
+                        .foregroundColor(.white)
+                        .cornerRadius(12)
+                    }
+                    .disabled(isChecking)
+
+                    Button(action: {
+                        Task { await resendVerification() }
+                    }) {
+                        HStack {
+                            if isResending {
+                                ProgressView()
+                                    .progressViewStyle(CircularProgressViewStyle(tint: .blue))
+                            } else {
+                                Image(systemName: "envelope.fill")
+                            }
+                            Text("Resend Verification Email")
+                                .font(.headline)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding()
+                        .background(Color.blue.opacity(0.2))
+                        .foregroundColor(.blue)
+                        .cornerRadius(12)
+                    }
+                    .disabled(isResending)
+                }
+                .padding(.horizontal, 40)
+
+                Spacer()
+            }
+        }
+    }
+
+    private func resendVerification() async {
+        guard let user = Auth.auth().currentUser else { return }
+
+        isResending = true
+        message = nil
+
+        do {
+            try await user.sendEmailVerification()
+            message = "✓ Verification email sent! Check your inbox."
+            try? await Task.sleep(nanoseconds: 4_000_000_000)
+            message = nil
+        } catch {
+            message = "Failed to send email. Try again."
+            try? await Task.sleep(nanoseconds: 4_000_000_000)
+            message = nil
+        }
+
+        isResending = false
+    }
+
+    private func checkVerification() async {
+        guard let user = Auth.auth().currentUser else { return }
+
+        isChecking = true
+        message = nil
+
+        do {
+            try await user.reload()
+            if user.isEmailVerified {
+                message = "✓ Email verified successfully!"
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+                // Force refresh the entire app
+                NotificationCenter.default.post(name: NSNotification.Name("EmailVerified"), object: nil)
+            } else {
+                message = "Email not verified yet. Please check your inbox and click the link."
+                try? await Task.sleep(nanoseconds: 4_000_000_000)
+                message = nil
+            }
+        } catch {
+            message = "Error checking verification. Try again."
+            try? await Task.sleep(nanoseconds: 4_000_000_000)
+            message = nil
+        }
+
+        isChecking = false
     }
 }
 

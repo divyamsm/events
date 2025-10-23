@@ -53,11 +53,13 @@ StepOut/backend/firebase-debug.log
 StepOut/backend/.firebase/
 firebase-debug.log
 
-# Keep seed scripts for future reference (documented in TESTING_GUIDE_3_NEW_APIS.md)
-# - seedUsers.cjs
-# - seedFriendsAndInvites.cjs
-# - seedProfile.cjs
-# - seed.js
+# Ignore all seed and check scripts (utility/debugging scripts)
+backend/tools/*.cjs
+backend/tools/*.js
+!backend/tools/package.json
+StepOut/backend/tools/*.cjs
+StepOut/backend/tools/*.js
+!StepOut/backend/tools/package.json
 
 # Carthage
 Carthage/Build/

@@ -3,11 +3,13 @@ import MapKit
 import PhotosUI
 import CoreLocation
 import UIKit
+import FirebaseAuth
 
 @MainActor
 struct ContentView: View {
     let appState: AppState
-    @StateObject private var viewModel: EventFeedViewModel
+    @StateObject private var authManager: AuthenticationManager
+    @State private var viewModel: EventFeedViewModel?
     @State private var alertContext: AlertContext?
     @State private var showingCreateEvent = false
     @State private var editingEvent: EventFeedViewModel.FeedEvent?
@@ -17,41 +19,119 @@ struct ContentView: View {
     @State private var selectedFeedTab: FeedTab = .upcoming
 
 
-    private enum FeedTab: String, CaseIterable {
+    fileprivate enum FeedTab: String, CaseIterable {
         case upcoming = "Upcoming"
         case past = "Past"
     }
 
     init(
         appState: AppState,
+        authManager: AuthenticationManager? = nil,
         viewModel: EventFeedViewModel? = nil
     ) {
         self.appState = appState
 
-        if let viewModel = viewModel {
-            _viewModel = StateObject(wrappedValue: viewModel)
+        if let authManager = authManager {
+            _authManager = StateObject(wrappedValue: authManager)
         } else {
-            let backend: EventBackend
-#if canImport(FirebaseFunctions)
-            backend = FirebaseEventBackend()
-#else
-            backend = MockEventBackend()
-#endif
-            _viewModel = StateObject(
-                wrappedValue: EventFeedViewModel(
-                    backend: backend,
-                    session: UserSession.sample,
-                    appState: appState
-                )
-            )
+            _authManager = StateObject(wrappedValue: AuthenticationManager())
+        }
+
+        // Don't create view model until authentication completes
+        if let viewModel = viewModel {
+            _viewModel = State(initialValue: viewModel)
         }
     }
+
+    var body: some View {
+        Group {
+            if authManager.isLoading {
+                VStack {
+                    ProgressView()
+                        .progressViewStyle(.circular)
+                    Text("Loading...")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .padding(.top, 8)
+                }
+            } else if authManager.isAuthenticated, let session = authManager.currentSession {
+                if viewModel != nil {
+                    mainAppView
+                        .onChange(of: authManager.currentSession) { newSession in
+                            if let newSession = newSession {
+                                viewModel?.updateSession(newSession)
+                            }
+                        }
+                } else {
+                    Color.clear
+                        .onAppear {
+                            createViewModel(with: session)
+                        }
+                }
+            } else {
+                EmailAuthView { user in
+                    print("[ContentView] User signed in: \(user.uid)")
+                }
+            }
+        }
+    }
+
+    private func createViewModel(with session: UserSession) {
+        let backend: EventBackend
+#if canImport(FirebaseFunctions)
+        backend = FirebaseEventBackend()
+#else
+        backend = MockEventBackend()
+#endif
+        viewModel = EventFeedViewModel(
+            backend: backend,
+            session: session,
+            appState: appState
+        )
+    }
+
+    private var mainAppView: some View {
+        guard let viewModel = viewModel else {
+            return AnyView(Color.clear)
+        }
+
+        return AnyView(mainAppViewContent(with: viewModel))
+    }
+
+    private func mainAppViewContent(with viewModel: EventFeedViewModel) -> some View {
+        MainAppContentView(
+            viewModel: viewModel,
+            appState: appState,
+            authManager: authManager,
+            selectedFeedTab: $selectedFeedTab,
+            showingCreateEvent: $showingCreateEvent,
+            editingEvent: $editingEvent,
+            deleteTarget: $deleteTarget,
+            showAttendanceSheet: $showAttendanceSheet,
+            pendingRSVP: $pendingRSVP,
+            alertContext: $alertContext
+        )
+    }
+}
+
+@MainActor
+private struct MainAppContentView: View {
+    @ObservedObject var viewModel: EventFeedViewModel
+    let appState: AppState
+    let authManager: AuthenticationManager?
+    @Binding var selectedFeedTab: ContentView.FeedTab
+    @Binding var showingCreateEvent: Bool
+    @Binding var editingEvent: EventFeedViewModel.FeedEvent?
+    @Binding var deleteTarget: EventFeedViewModel.FeedEvent?
+    @Binding var showAttendanceSheet: EventFeedViewModel.FeedEvent?
+    @Binding var pendingRSVP: EventFeedViewModel.FeedEvent?
+    @Binding var alertContext: AlertContext?
 
     var body: some View {
         NavigationStack {
             VStack(spacing: 16) {
                 Picker("Event Filter", selection: $selectedFeedTab) {
-                    ForEach(FeedTab.allCases, id: \.self) { tab in
+                    ForEach(ContentView.FeedTab.allCases, id: \.self) { tab in
                         Text(tab.rawValue).tag(tab)
                     }
                 }
@@ -83,7 +163,7 @@ struct ContentView: View {
                 }
                 ToolbarItem(placement: .navigationBarTrailing) {
                     NavigationLink {
-                        ProfileView()
+                        ProfileView(authManager: authManager)
                             .environmentObject(appState)
                     } label: {
                         Image(systemName: "person.crop.circle")
@@ -1313,6 +1393,12 @@ private struct CreateEventView: View {
     var body: some View {
         NavigationStack {
             Form {
+                Section {
+                    EmailVerificationBanner()
+                }
+                .listRowInsets(EdgeInsets())
+                .listRowBackground(Color.clear)
+
                 Section(header: Text("Details")) {
                     TextField("Event name", text: $title)
                     TextField("Location", text: $location)
@@ -1936,3 +2022,129 @@ private struct SuccessToast: View {
         .allowsHitTesting(false)
     }
 }
+
+
+// MARK: - Email Verification Banner
+private struct EmailVerificationBanner: View {
+    @State private var isResending = false
+    @State private var showSuccess = false
+    @State private var showError = false
+
+    var body: some View {
+        if let user = Auth.auth().currentUser, !user.isEmailVerified {
+            VStack(spacing: 12) {
+                HStack(spacing: 12) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundColor(.orange)
+                        .font(.title3)
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Email Not Verified")
+                            .font(.subheadline.bold())
+                            .foregroundColor(.white)
+
+                        Text("Please verify your email to unlock all features")
+                            .font(.caption)
+                            .foregroundColor(.white.opacity(0.8))
+                    }
+
+                    Spacer()
+                }
+
+                if showSuccess {
+                    Text("✓ Verification email sent!")
+                        .font(.caption)
+                        .foregroundColor(.green)
+                        .transition(.opacity)
+                }
+
+                if showError {
+                    Text("Failed to send email. Try again.")
+                        .font(.caption)
+                        .foregroundColor(.red)
+                        .transition(.opacity)
+                }
+
+                HStack(spacing: 12) {
+                    Button(action: {
+                        Task { await resendVerification() }
+                    }) {
+                        HStack(spacing: 6) {
+                            if isResending {
+                                ProgressView()
+                                    .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                                    .scaleEffect(0.8)
+                            } else {
+                                Image(systemName: "envelope.fill")
+                            }
+                            Text("Resend Email")
+                                .font(.caption.bold())
+                        }
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 8)
+                        .background(Color.blue)
+                        .cornerRadius(8)
+                    }
+                    .disabled(isResending)
+
+                    Button(action: {
+                        Task { await checkVerification() }
+                    }) {
+                        Text("I've Verified")
+                            .font(.caption.bold())
+                            .foregroundColor(.blue)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 8)
+                            .background(Color.blue.opacity(0.2))
+                            .cornerRadius(8)
+                    }
+                }
+            }
+            .padding()
+            .background(
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(Color.orange.opacity(0.2))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12)
+                            .stroke(Color.orange.opacity(0.5), lineWidth: 1)
+                    )
+            )
+        }
+    }
+
+    private func resendVerification() async {
+        guard let user = Auth.auth().currentUser else { return }
+
+        isResending = true
+        showSuccess = false
+        showError = false
+
+        do {
+            try await user.sendEmailVerification()
+            showSuccess = true
+            try? await Task.sleep(nanoseconds: 3_000_000_000)
+            showSuccess = false
+        } catch {
+            showError = true
+            try? await Task.sleep(nanoseconds: 3_000_000_000)
+            showError = false
+        }
+
+        isResending = false
+    }
+
+    private func checkVerification() async {
+        guard let user = Auth.auth().currentUser else { return }
+
+        do {
+            try await user.reload()
+            if user.isEmailVerified {
+                NotificationCenter.default.post(name: NSNotification.Name("EmailVerified"), object: nil)
+            }
+        } catch {
+            print("[Verification] Error reloading user: \(error)")
+        }
+    }
+}
+

@@ -216,13 +216,10 @@ async function buildProfilePayload(userId: string) {
 }
 
 export const createEvent = onCall(async (request) => {
+  // Require authentication - use authenticated user's UID as ownerId
+  const uid = requireAuth(request);
   const payload: EventCreatePayload = parseRequest(eventSchema, request.data);
-  console.log("[Function] createEvent payload", payload);
-
-  const uid = payload.ownerId ?? request.auth?.uid;
-  if (!uid) {
-    throw new HttpsError("invalid-argument", "ownerId must be provided.");
-  }
+  console.log("[Function] createEvent payload", payload, "authUid:", uid);
   if (payload.endAt <= payload.startAt) {
     throw new HttpsError("invalid-argument", "endAt must be after startAt.");
   }
@@ -262,33 +259,74 @@ export const createEvent = onCall(async (request) => {
 });
 
 export const listFeed = onCall(async (request) => {
-  // Support both authenticated users and explicit userId parameter (for dev/testing without Firebase Auth)
-  const authUid = request.auth?.uid ?? (request.data?.userId as string | undefined) ?? null;
+  // Require authentication
+  const authUid = requireAuth(request);
   console.log("[Function] listFeed query", request.data, "authUid:", authUid);
   const queryParams = parseRequest(feedQuerySchema, request.data ?? {}) as FeedQuery;
 
-  let query = db
+  // Fetch user-specific events:
+  // 1. Events owned by the user
+  // 2. Events user is invited to
+  // 3. Public events
+
+  const now = queryParams.from ? Timestamp.fromDate(new Date(queryParams.from)) : Timestamp.now();
+  const to = queryParams.to ? Timestamp.fromDate(new Date(queryParams.to)) : null;
+
+  // Query 1: Events owned by user
+  let ownedQuery = db
     .collection("events")
     .where("canceled", "==", false)
+    .where("ownerId", "==", authUid)
+    .where("startAt", ">=", now)
     .orderBy("startAt", "asc");
 
-  if (queryParams.visibility) {
-    query = query.where("visibility", "==", queryParams.visibility);
-  }
-  if (queryParams.from) {
-    query = query.where("startAt", ">=", Timestamp.fromDate(new Date(queryParams.from)));
-  }
-  if (queryParams.to) {
-    query = query.where("startAt", "<=", Timestamp.fromDate(new Date(queryParams.to)));
-  }
-  if (queryParams.startAfter) {
-    const doc = await db.collection("events").doc(queryParams.startAfter).get();
-    if (doc.exists) {
-      query = query.startAfter(doc);
-    }
+  if (to) {
+    ownedQuery = ownedQuery.where("startAt", "<=", to);
   }
 
-  const snap = await query.limit(queryParams.limit).get();
+  // Query 2: Public events
+  let publicQuery = db
+    .collection("events")
+    .where("canceled", "==", false)
+    .where("visibility", "==", "public")
+    .where("startAt", ">=", now)
+    .orderBy("startAt", "asc");
+
+  if (to) {
+    publicQuery = publicQuery.where("startAt", "<=", to);
+  }
+
+  // Query 3: Events where user is invited (private events)
+  // NOTE: array-contains MUST be first in Firestore queries
+  let invitedQuery = db
+    .collection("events")
+    .where("invitedUserIds", "array-contains", authUid)
+    .where("canceled", "==", false)
+    .where("startAt", ">=", now)
+    .orderBy("startAt", "asc");
+
+  if (to) {
+    invitedQuery = invitedQuery.where("startAt", "<=", to);
+  }
+
+  // Execute all queries in parallel
+  const [ownedSnap, publicSnap, invitedSnap] = await Promise.all([
+    ownedQuery.limit(queryParams.limit).get(),
+    publicQuery.limit(queryParams.limit).get(),
+    invitedQuery.limit(queryParams.limit).get()
+  ]);
+
+  // Combine and deduplicate events
+  const eventMap = new Map();
+  const allSnaps = [...ownedSnap.docs, ...publicSnap.docs, ...invitedSnap.docs];
+
+  allSnaps.forEach(doc => {
+    if (!eventMap.has(doc.id)) {
+      eventMap.set(doc.id, doc);
+    }
+  });
+
+  const snap = { docs: Array.from(eventMap.values()) };
   const attendeeIds = new Set<string>();
   const events = await Promise.all(
     snap.docs.map(async (doc) => {
@@ -299,7 +337,7 @@ export const listFeed = onCall(async (request) => {
       const arrivalTimes: Record<string, number> = {};
       let attending = false;
 
-      membersSnap.forEach((memberDoc) => {
+      membersSnap.forEach((memberDoc: admin.firestore.QueryDocumentSnapshot<admin.firestore.DocumentData>) => {
         const memberData = memberDoc.data();
         const memberId = memberDoc.id;
         const status = memberData.status as string | undefined;
@@ -388,13 +426,16 @@ export const listFeed = onCall(async (request) => {
 });
 
 export const rsvpEvent = onCall(async (request) => {
+  // Require authentication - userId must match authenticated user
+  const uid = requireAuth(request);
   const payload = parseRequest(rsvpRequestSchema, request.data) as RSVPCallPayload;
-  console.log("[Function] rsvpEvent payload", payload);
 
-  const uid = payload.userId ?? request.auth?.uid;
-  if (!uid) {
-    throw new HttpsError("invalid-argument", "userId must be provided.");
+  // Verify userId matches authenticated user (if provided)
+  if (payload.userId && payload.userId !== uid) {
+    throw new HttpsError("permission-denied", "UserId must match authenticated user");
   }
+
+  console.log("[Function] rsvpEvent payload", payload, "authUid:", uid);
 
   const { ref: eventRef, snap: eventSnap } = await resolveEventDocument(payload.eventId, payload.eventIdVariants);
 
@@ -495,11 +536,13 @@ export const deleteEvent = onCall(async (request) => {
 });
 
 export const getProfile = onCall(async (request) => {
+  const authUid = requireAuth(request);
   const payload: ProfileRequestPayload = parseRequest(profileRequestSchema, request.data);
-  console.log("[Function] getProfile payload", payload);
+  console.log("[Function] getProfile payload", payload, "authUid:", authUid);
 
   try {
-    const response = await buildProfilePayload(payload.userId);
+    // Use the authenticated user's UID instead of the payload userId
+    const response = await buildProfilePayload(authUid);
     console.log("[Function] getProfile response summary", {
       userId: response.profile.userId,
       friends: response.friends.length,
@@ -514,11 +557,13 @@ export const getProfile = onCall(async (request) => {
 });
 
 export const updateProfile = onCall(async (request) => {
+  const authUid = requireAuth(request);
   const payload: ProfileUpdatePayload = parseRequest(profileUpdateSchema, request.data);
-  console.log("[Function] updateProfile payload", payload);
+  console.log("[Function] updateProfile payload", payload, "authUid:", authUid);
 
   try {
-    const userRef = db.collection("users").doc(payload.userId);
+    // Use the authenticated user's UID instead of the payload userId
+    const userRef = db.collection("users").doc(authUid);
     const userSnap = await userRef.get();
 
     const updates: Record<string, unknown> = {
@@ -531,7 +576,7 @@ export const updateProfile = onCall(async (request) => {
     if (payload.username !== undefined) {
       const normalized = payload.username.toLowerCase();
       const existing = await db.collection("users").where("usernameLowercase", "==", normalized).get();
-      const conflict = existing.docs.find((doc) => doc.id !== payload.userId);
+      const conflict = existing.docs.find((doc) => doc.id !== authUid);
       if (conflict) {
         throw new HttpsError("already-exists", "Username already taken.");
       }
@@ -554,7 +599,7 @@ export const updateProfile = onCall(async (request) => {
 
     await userRef.set(updates, { merge: true });
 
-    const response = await buildProfilePayload(payload.userId);
+    const response = await buildProfilePayload(authUid);
     console.log("[Function] updateProfile response summary", {
       userId: response.profile.userId,
       friends: response.friends.length,
@@ -594,8 +639,16 @@ export const listAttendedEvents = onCall(async (request) => {
 // ===========================
 
 export const shareEvent = onCall(async (request) => {
+  // Require authentication - senderId must match authenticated user
+  const authUid = requireAuth(request);
   const payload = parseRequest(shareEventSchema, request.data);
-  console.log("[Function] shareEvent payload", payload);
+
+  // Verify senderId matches authenticated user
+  if (payload.senderId !== authUid) {
+    throw new HttpsError("permission-denied", "SenderId must match authenticated user");
+  }
+
+  console.log("[Function] shareEvent payload", payload, "authUid:", authUid);
 
   try {
     // Verify event exists

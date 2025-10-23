@@ -13,62 +13,67 @@ import FirebaseMessaging
 final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
     func application(_ application: UIApplication,
                      didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
+        print("[AppDelegate] 🔴 didFinishLaunchingWithOptions START")
+
 #if canImport(FirebaseCore)
         if FirebaseApp.app() == nil {
+            print("[AppDelegate] 🔴 Configuring Firebase...")
             FirebaseApp.configure()
+            print("[AppDelegate] 🟢 Firebase configured")
         }
 #endif
 
+        // Request notification permissions and register for APNs
         let notificationCenter = UNUserNotificationCenter.current()
         notificationCenter.delegate = self
         notificationCenter.requestAuthorization(options: [.alert, .badge, .sound]) { granted, error in
             if let error {
-                print("Notification authorization error: \(error.localizedDescription)")
+                print("[AppDelegate] Notification authorization error: \(error.localizedDescription)")
             }
-            if granted == false {
-                print("Notification authorization not granted; Firebase phone auth will use reCAPTCHA fallback.")
+            if granted {
+                print("[AppDelegate] ✅ Notification authorization granted")
+                DispatchQueue.main.async {
+                    application.registerForRemoteNotifications()
+                }
+            } else {
+                print("[AppDelegate] ❌ Notification authorization denied - using test phone numbers")
             }
         }
 
-        DispatchQueue.main.async {
-            application.registerForRemoteNotifications()
-        }
-
-#if canImport(FirebaseAuth)
-        signInDefaultUserIfNeeded()
-#endif
-
+        print("[AppDelegate] 🔴 didFinishLaunchingWithOptions END")
         return true
     }
 
     func application(_ application: UIApplication,
                      didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
-#if canImport(FirebaseAuth)
-        #if DEBUG
-        Auth.auth().setAPNSToken(deviceToken, type: .sandbox)
-        #else
-        Auth.auth().setAPNSToken(deviceToken, type: .prod)
-        #endif
-#endif
+        print("[AppDelegate] 🟢 Got APNs device token!")
 
-#if canImport(FirebaseMessaging)
-        Messaging.messaging().apnsToken = deviceToken
-#endif
+        // NOTE: We're using email authentication now, not phone auth
+        // So we don't need to set APNs token for Firebase Auth
+        // If you need push notifications for other features, configure them here
+
+        print("[AppDelegate] ✅ APNs token received (not configured for email auth)")
     }
 
     func application(_ application: UIApplication,
                      didFailToRegisterForRemoteNotificationsWithError error: Error) {
-        print("Failed to register for remote notifications: \(error.localizedDescription)")
+        print("[AppDelegate] 🔴 Failed to register for remote notifications: \(error.localizedDescription)")
+        print("[AppDelegate] 🟡 Phone auth will use reCAPTCHA verification")
+        // SKIP setting dummy APNs token - it crashes Firebase Auth
     }
 
     func application(_ application: UIApplication,
                      didReceiveRemoteNotification userInfo: [AnyHashable: Any],
                      fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void) {
+        print("[AppDelegate] 🔵 didReceiveRemoteNotification with fetchCompletionHandler called")
+        print("[AppDelegate] 🔵 Notification data: \(userInfo)")
 #if canImport(FirebaseAuth)
         if Auth.auth().canHandleNotification(userInfo) {
+            print("[AppDelegate] 🟢 Firebase Auth handled the notification!")
             completionHandler(.noData)
             return
         }
+        print("[AppDelegate] 🟡 Firebase Auth did NOT handle this notification")
 #endif
 
         completionHandler(.noData)
@@ -76,10 +81,14 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
 
     func application(_ application: UIApplication,
                      didReceiveRemoteNotification userInfo: [AnyHashable: Any]) {
+        print("[AppDelegate] 🔵 didReceiveRemoteNotification (no completion) called")
+        print("[AppDelegate] 🔵 Notification data: \(userInfo)")
 #if canImport(FirebaseAuth)
         if Auth.auth().canHandleNotification(userInfo) {
+            print("[AppDelegate] 🟢 Firebase Auth handled the notification!")
             return
         }
+        print("[AppDelegate] 🟡 Firebase Auth did NOT handle this notification")
 #endif
     }
 
@@ -99,11 +108,15 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
     func userNotificationCenter(_ center: UNUserNotificationCenter,
                                 willPresent notification: UNNotification,
                                 withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
+        print("[AppDelegate] 🔵 userNotificationCenter willPresent called")
+        print("[AppDelegate] 🔵 Notification: \(notification.request.content.userInfo)")
 #if canImport(FirebaseAuth)
         if Auth.auth().canHandleNotification(notification.request.content.userInfo) {
+            print("[AppDelegate] 🟢 Firebase Auth handled the notification!")
             completionHandler([])
             return
         }
+        print("[AppDelegate] 🟡 Firebase Auth did NOT handle this notification")
 #endif
         completionHandler([.banner, .badge, .sound])
     }
@@ -111,46 +124,16 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
     func userNotificationCenter(_ center: UNUserNotificationCenter,
                                 didReceive response: UNNotificationResponse,
                                 withCompletionHandler completionHandler: @escaping () -> Void) {
+        print("[AppDelegate] 🔵 userNotificationCenter didReceive response called")
+        print("[AppDelegate] 🔵 Response: \(response.notification.request.content.userInfo)")
 #if canImport(FirebaseAuth)
         if Auth.auth().canHandleNotification(response.notification.request.content.userInfo) {
+            print("[AppDelegate] 🟢 Firebase Auth handled the notification!")
             completionHandler()
             return
         }
+        print("[AppDelegate] 🟡 Firebase Auth did NOT handle this notification")
 #endif
         completionHandler()
     }
-
-#if canImport(FirebaseAuth)
-    private func signInDefaultUserIfNeeded() {
-#if DEBUG
-        let auth = Auth.auth()
-
-        if let current = auth.currentUser,
-           current.email == "you@example.com" {
-            current.getIDToken { _, error in
-                if let error {
-                    print("Developer token refresh failed: \(error.localizedDescription)")
-                }
-                NotificationCenter.default.post(name: .firebaseAuthDidSignIn, object: nil)
-            }
-            return
-        }
-
-        do {
-            try auth.signOut()
-        } catch {
-            print("Developer sign-out failed: \(error.localizedDescription)")
-        }
-
-        auth.signIn(withEmail: "you@example.com", password: "StepOut123!") { _, error in
-            if let error {
-                print("Developer sign-in failed: \(error.localizedDescription)")
-            } else {
-                print("Developer sign-in succeeded.")
-                NotificationCenter.default.post(name: .firebaseAuthDidSignIn, object: nil)
-            }
-        }
-#endif
-    }
-#endif
 }
