@@ -81,3 +81,24 @@ fastlane/test_output/
 # Playgrounds
 timeline.xctimeline
 playground.xcworkspace
+
+# Claude Code local settings
+.claude/settings.local.json
+
+# Build logs
+*.log
+build.log
+StepOut/build.log
+
+# Temporary documentation/debug files
+ACTUAL_FIX_SUMMARY.md
+COMPLETE_IMPLEMENTATION_SUMMARY.md
+IMPLEMENTATION_STATUS.md
+QUICK_START_GUIDE.md
+*_SUMMARY.md
+
+# Backend utility/debug scripts
+StepOut/backend/check_user.js
+StepOut/backend/tools/check*.js
+backend/check_user.js
+backend/tools/check*.js

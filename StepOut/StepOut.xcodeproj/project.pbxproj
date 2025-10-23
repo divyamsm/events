@@ -7,6 +7,13 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		27015A029197B3ED08725B9B /* AuthenticationManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = F4C22DDD7B86ACDFE4BC909B /* AuthenticationManager.swift */; };
+		74EA6C17AAA8D740DE910F52 /* PhoneAuthView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A46EEBA34FB8B363AE8248E /* PhoneAuthView.swift */; };
+		D9912387CE534522B544D988 /* EmailAuthView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 194C4C9625C5470CA0789657 /* EmailAuthView.swift */; };
+		EB1F9DF7676043E9BE92D9EC /* InviteFriendsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6DE419A062B4BFA886CB176 /* InviteFriendsView.swift */; };
+		91163F5183D1471C8ACD60CD /* ContactsManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 28AFC53405874F57865E693B /* ContactsManager.swift */; };
+		C3A6E687E9CB465FB1B052E3 /* EventPreferencesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1566B7713E194908AA9D0763 /* EventPreferencesView.swift */; };
+		7A3007E6192640B78477C884 /* UserProfileViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = D90D6DFB6A80497A8B3A71B1 /* UserProfileViewModel.swift */; };
 		8E2410082E976361008B258E /* FirebaseAI in Frameworks */ = {isa = PBXBuildFile; productRef = 8E2410072E976361008B258E /* FirebaseAI */; };
 		8E24100A2E976361008B258E /* FirebaseAnalytics in Frameworks */ = {isa = PBXBuildFile; productRef = 8E2410092E976361008B258E /* FirebaseAnalytics */; };
 		8E24100C2E976361008B258E /* FirebaseAuth in Frameworks */ = {isa = PBXBuildFile; productRef = 8E24100B2E976361008B258E /* FirebaseAuth */; };
@@ -22,8 +29,6 @@
 		FF1A4CE229A1A2D000000201 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF1A4CE229A1A2D000000101 /* ContentView.swift */; };
 		FF1A4CE229A1A2D000000202 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = FF1A4CE229A1A2D000000102 /* Assets.xcassets */; };
 		FF1A4CE329A1A2D000000210 /* EventData.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF1A4CE329A1A2D000000110 /* EventData.swift */; };
-		FF9C0AA12F0D0001000AAA01 /* FirebaseEventBackend.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF9C0AA02F0D0001000AAA00 /* FirebaseEventBackend.swift */; };
-		FF9C0AA32F0D0132000AAA02 /* Notification+Extensions.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF9C0AA22F0D0132000AAA02 /* Notification+Extensions.swift */; };
 		FF1A4CE329A1A2D000000211 /* StepOutWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF1A4CE329A1A2D000000111 /* StepOutWidget.swift */; };
 		FF1A4CE329A1A2D000000212 /* StepOutWidgetBundle.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF1A4CE329A1A2D000000112 /* StepOutWidgetBundle.swift */; };
 		FF1A4CE329A1A2D000000213 /* EventData.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF1A4CE329A1A2D000000110 /* EventData.swift */; };
@@ -38,6 +43,8 @@
 		FF1A4CE529A1A2D000000230 /* WidgetTimelineBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF1A4CE529A1A2D000000130 /* WidgetTimelineBridge.swift */; };
 		FF1A4CE529A1A2D000000231 /* WidgetTimelineBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF1A4CE529A1A2D000000130 /* WidgetTimelineBridge.swift */; };
 		FF3B9B1F2BE671D3000A1234 /* PhoneAuthViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF3B9B1E2BE671D3000A1234 /* PhoneAuthViewModel.swift */; };
+		FF9C0AA12F0D0001000AAA01 /* FirebaseEventBackend.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF9C0AA02F0D0001000AAA00 /* FirebaseEventBackend.swift */; };
+		FF9C0AA32F0D0132000AAA02 /* Notification+Extensions.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF9C0AA22F0D0132000AAA02 /* Notification+Extensions.swift */; };
 		FFB0ABCD2F0CDEF100000101 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = FFB0ABCD2F0CDEF100000001 /* AppDelegate.swift */; };
 /* End PBXBuildFile section */
 
@@ -66,8 +73,14 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		2A46EEBA34FB8B363AE8248E /* PhoneAuthView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PhoneAuthView.swift; sourceTree = "<group>"; };
+		194C4C9625C5470CA0789657 /* EmailAuthView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmailAuthView.swift; sourceTree = "<group>"; };
+		E6DE419A062B4BFA886CB176 /* InviteFriendsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InviteFriendsView.swift; sourceTree = "<group>"; };
+		28AFC53405874F57865E693B /* ContactsManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContactsManager.swift; sourceTree = "<group>"; };
+		1566B7713E194908AA9D0763 /* EventPreferencesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EventPreferencesView.swift; sourceTree = "<group>"; };
+		D90D6DFB6A80497A8B3A71B1 /* UserProfileViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UserProfileViewModel.swift; sourceTree = "<group>"; };
 		8E24101F2E977C50008B258E /* GoogleService-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = "GoogleService-Info.plist"; sourceTree = "<group>"; };
-		FFB0ABCD2F0CDEF100000001 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
+		F4C22DDD7B86ACDFE4BC909B /* AuthenticationManager.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AuthenticationManager.swift; sourceTree = "<group>"; };
 		FF1A4CE229A1A2D000000100 /* StepOutApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StepOutApp.swift; sourceTree = "<group>"; };
 		FF1A4CE229A1A2D000000101 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		FF1A4CE229A1A2D000000102 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
@@ -75,8 +88,6 @@
 		FF1A4CE229A1A2D000000104 /* Preview Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = "Preview Assets.xcassets"; sourceTree = "<group>"; };
 		FF1A4CE229A1A2D000000400 /* StepOut.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = StepOut.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		FF1A4CE329A1A2D000000110 /* EventData.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EventData.swift; sourceTree = "<group>"; };
-		FF9C0AA02F0D0001000AAA00 /* FirebaseEventBackend.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FirebaseEventBackend.swift; sourceTree = "<group>"; };
-		FF9C0AA22F0D0132000AAA02 /* Notification+Extensions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Notification+Extensions.swift"; sourceTree = "<group>"; };
 		FF1A4CE329A1A2D000000111 /* StepOutWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StepOutWidget.swift; sourceTree = "<group>"; };
 		FF1A4CE329A1A2D000000112 /* StepOutWidgetBundle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StepOutWidgetBundle.swift; sourceTree = "<group>"; };
 		FF1A4CE329A1A2D000000113 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
@@ -91,6 +102,9 @@
 		FF1A4CE529A1A2D000000131 /* StepOut.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = StepOut.entitlements; sourceTree = "<group>"; };
 		FF1A4CE529A1A2D000000132 /* StepOutWidget.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = StepOutWidget.entitlements; sourceTree = "<group>"; };
 		FF3B9B1E2BE671D3000A1234 /* PhoneAuthViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneAuthViewModel.swift; sourceTree = "<group>"; };
+		FF9C0AA02F0D0001000AAA00 /* FirebaseEventBackend.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FirebaseEventBackend.swift; sourceTree = "<group>"; };
+		FF9C0AA22F0D0132000AAA02 /* Notification+Extensions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Notification+Extensions.swift"; sourceTree = "<group>"; };
+		FFB0ABCD2F0CDEF100000001 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -155,6 +169,13 @@
 				FF1A4CE229A1A2D000000102 /* Assets.xcassets */,
 				FF1A4CE229A1A2D000000103 /* Info.plist */,
 				FF1A4CE229A1A2D000000105 /* Preview Content */,
+				F4C22DDD7B86ACDFE4BC909B /* AuthenticationManager.swift */,
+				2A46EEBA34FB8B363AE8248E /* PhoneAuthView.swift */,
+				194C4C9625C5470CA0789657 /* EmailAuthView.swift */,
+				E6DE419A062B4BFA886CB176 /* InviteFriendsView.swift */,
+				28AFC53405874F57865E693B /* ContactsManager.swift */,
+				1566B7713E194908AA9D0763 /* EventPreferencesView.swift */,
+				D90D6DFB6A80497A8B3A71B1 /* UserProfileViewModel.swift */,
 			);
 			path = StepOut;
 			sourceTree = "<group>";
@@ -308,6 +329,13 @@
 				FF1A4CE429A1A2D000000224 /* ProfileView.swift in Sources */,
 				FF1A4CE429A1A2D000000225 /* OnboardingFlowView.swift in Sources */,
 				FF1A4CE429A1A2D000000226 /* AppState.swift in Sources */,
+				27015A029197B3ED08725B9B /* AuthenticationManager.swift in Sources */,
+				74EA6C17AAA8D740DE910F52 /* PhoneAuthView.swift in Sources */,
+				D9912387CE534522B544D988 /* EmailAuthView.swift in Sources */,
+				EB1F9DF7676043E9BE92D9EC /* InviteFriendsView.swift in Sources */,
+				91163F5183D1471C8ACD60CD /* ContactsManager.swift in Sources */,
+				C3A6E687E9CB465FB1B052E3 /* EventPreferencesView.swift in Sources */,
+				7A3007E6192640B78477C884 /* UserProfileViewModel.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -375,6 +403,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = StepOut.entitlements;
+				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_ASSET_PATHS = "\"StepOut/Preview Content\"";
@@ -391,6 +420,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = com.stepout2.app;
 				PRODUCT_BUNDLE_PACKAGE_TYPE = APPL;
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "";
 				SDKROOT = iphoneos;
 				SUPPORTED_PLATFORMS = "iphonesimulator iphoneos";
 				SUPPORTS_MACCATALYST = NO;
@@ -406,6 +436,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = StepOut.entitlements;
+				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_ASSET_PATHS = "\"StepOut/Preview Content\"";
@@ -422,6 +453,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = com.stepout2.app;
 				PRODUCT_BUNDLE_PACKAGE_TYPE = APPL;
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "";
 				SDKROOT = iphoneos;
 				SUPPORTED_PLATFORMS = "iphonesimulator iphoneos";
 				SUPPORTS_MACCATALYST = NO;

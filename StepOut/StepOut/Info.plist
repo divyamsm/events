@@ -21,21 +21,30 @@
 		<dict>
 			<key>CFBundleURLName</key>
 			<string>com.stepout2.app</string>
-				<key>CFBundleURLSchemes</key>
-				<array>
-					<string>stepout</string>
-					<string>com.stepout2.app</string>
-					<string>app-1-922131577969-ios-fb7e6c4ea3692c01746fd0</string>
-				</array>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>stepout</string>
+				<string>com.stepout2.app</string>
+				<string>app-1-922131577969-ios-fb7e6c4ea3692c01746fd0</string>
+				<string>com.googleusercontent.apps.922131577969-ubdafoc9baurne1q69sess1018lqlq93</string>
+			</array>
 		</dict>
 	</array>
 	<key>CFBundleVersion</key>
 	<string>1</string>
+	<key>FirebaseAppDelegateProxyEnabled</key>
+	<false/>
+	<key>FirebaseAppCheckDebugToken</key>
+	<string>test</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>
 		<false/>
 	</dict>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>remote-notification</string>
+	</array>
 	<key>UILaunchScreen</key>
 	<dict/>
 	<key>UISupportedInterfaceOrientations</key>
@@ -44,5 +53,7 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
+	<key>NSContactsUsageDescription</key>
+	<string>StepOut needs access to your contacts to help you find friends who are already using the app and invite others to join.</string>
 </dict>
 </plist>
