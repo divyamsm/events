@@ -96,7 +96,7 @@ final class AuthenticationManager: ObservableObject {
             // In production, you would request actual location permissions
             let location = CLLocation(latitude: 37.7749, longitude: -122.4194)
 
-            currentSession = UserSession(user: friend, currentLocation: location)
+            currentSession = UserSession(user: friend, currentLocation: location, firebaseUID: user.uid)
 
             print("[Auth] ✅ Created session for user: \(user.uid), name: \(displayName)")
         } catch {
@@ -113,7 +113,7 @@ final class AuthenticationManager: ObservableObject {
                 avatarURL: nil
             )
             let location = CLLocation(latitude: 37.7749, longitude: -122.4194)
-            currentSession = UserSession(user: friend, currentLocation: location)
+            currentSession = UserSession(user: friend, currentLocation: location, firebaseUID: user.uid)
 
             print("[Auth] ✅ Created fallback session for user: \(user.uid)")
         }

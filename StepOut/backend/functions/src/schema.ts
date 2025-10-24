@@ -270,3 +270,46 @@ export interface FriendInviteDoc {
   createdAt: Timestamp;
   updatedAt: Timestamp;
 }
+
+// Chat schemas
+export const sendMessageSchema = z.object({
+  chatId: z.string().min(1),
+  text: z.string().min(1).max(2000)
+});
+
+export type SendMessagePayload = z.infer<typeof sendMessageSchema>;
+
+export const getMessagesSchema = z.object({
+  chatId: z.string().min(1),
+  limit: z.number().int().positive().optional(),
+  before: z.coerce.date().optional()
+}).transform((value) => ({
+  ...value,
+  limit: value.limit ?? 50
+}));
+
+export type GetMessagesPayload = z.infer<typeof getMessagesSchema>;
+
+export interface ChatDoc {
+  chatId: string;
+  eventId: string;
+  eventTitle: string;
+  participantIds: string[];
+  createdAt: Timestamp;
+  lastMessageAt: Timestamp | null;
+  lastMessageText: string | null;
+  lastMessageSenderId: string | null;
+  lastMessageSenderName: string | null;
+  unreadCounts: Record<string, number>;
+  archived?: boolean;
+}
+
+export interface MessageDoc {
+  messageId: string;
+  senderId: string;
+  senderName: string;
+  senderPhotoURL?: string | null;
+  text: string;
+  createdAt: Timestamp;
+  type: "text" | "system";
+}

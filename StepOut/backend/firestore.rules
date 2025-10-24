@@ -70,5 +70,31 @@ service cloud.firestore {
     match /widgetSnapshots/{userId} {
       allow read, write: if isOwner(userId);
     }
+
+    match /chats/{chatId} {
+      // Users can read/write chats if they are a participant
+      allow read: if isSignedIn()
+        && request.auth.uid in resource.data.participantIds;
+
+      allow create: if isSignedIn();
+
+      allow update: if isSignedIn()
+        && request.auth.uid in resource.data.participantIds;
+
+      // Messages subcollection
+      match /messages/{messageId} {
+        // Anyone who can read the parent chat can read messages
+        allow read: if isSignedIn()
+          && request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participantIds;
+
+        // Anyone who is a participant can create messages
+        allow create: if isSignedIn()
+          && request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participantIds
+          && request.resource.data.senderId == request.auth.uid;
+
+        // Messages cannot be updated or deleted
+        allow update, delete: if false;
+      }
+    }
   }
 }

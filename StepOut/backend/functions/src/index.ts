@@ -3,6 +3,7 @@ import { DocumentData, DocumentReference, DocumentSnapshot, Timestamp } from "fi
 import { randomUUID } from "crypto";
 import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { CallableRequest } from "firebase-functions/v2/https";
+import * as schema from "./schema";
 import {
   EventCreatePayload,
   EventDeletePayload,
@@ -253,6 +254,22 @@ export const createEvent = onCall(async (request) => {
     updatedAt: now
   });
 
+  // Create chat for the event
+  const chatRef = db.collection("chats").doc(eventId);
+  const chatDoc: schema.ChatDoc = {
+    chatId: eventId,
+    eventId: eventId,
+    eventTitle: payload.title,
+    participantIds: [uid],
+    createdAt: now,
+    lastMessageAt: null,
+    lastMessageText: null,
+    lastMessageSenderId: null,
+    lastMessageSenderName: null,
+    unreadCounts: {}
+  };
+  batch.set(chatRef, chatDoc);
+
   await batch.commit();
   console.log("[Function] createEvent returning", eventId);
   return { eventId };
@@ -272,42 +289,27 @@ export const listFeed = onCall(async (request) => {
   const now = queryParams.from ? Timestamp.fromDate(new Date(queryParams.from)) : Timestamp.now();
   const to = queryParams.to ? Timestamp.fromDate(new Date(queryParams.to)) : null;
 
-  // Query 1: Events owned by user
+  // Query 1: Events owned by user (all events, past and upcoming)
   let ownedQuery = db
     .collection("events")
     .where("canceled", "==", false)
     .where("ownerId", "==", authUid)
-    .where("startAt", ">=", now)
-    .orderBy("startAt", "asc");
+    .orderBy("startAt", "desc");
 
-  if (to) {
-    ownedQuery = ownedQuery.where("startAt", "<=", to);
-  }
-
-  // Query 2: Public events
+  // Query 2: Public events (all events, past and upcoming)
   let publicQuery = db
     .collection("events")
     .where("canceled", "==", false)
     .where("visibility", "==", "public")
-    .where("startAt", ">=", now)
-    .orderBy("startAt", "asc");
+    .orderBy("startAt", "desc");
 
-  if (to) {
-    publicQuery = publicQuery.where("startAt", "<=", to);
-  }
-
-  // Query 3: Events where user is invited (private events)
+  // Query 3: Events where user is invited (private events, all past and upcoming)
   // NOTE: array-contains MUST be first in Firestore queries
   let invitedQuery = db
     .collection("events")
     .where("invitedUserIds", "array-contains", authUid)
     .where("canceled", "==", false)
-    .where("startAt", ">=", now)
-    .orderBy("startAt", "asc");
-
-  if (to) {
-    invitedQuery = invitedQuery.where("startAt", "<=", to);
-  }
+    .orderBy("startAt", "desc");
 
   // Execute all queries in parallel
   const [ownedSnap, publicSnap, invitedSnap] = await Promise.all([
@@ -451,6 +453,49 @@ export const rsvpEvent = onCall(async (request) => {
     { merge: true }
   );
 
+  // Add user to chat if status is "going"
+  if (payload.status === "going") {
+    const chatRef = db.collection("chats").doc(eventSnap.id);
+    const chatSnap = await chatRef.get();
+
+    if (chatSnap.exists) {
+      const chatData = chatSnap.data() as schema.ChatDoc;
+
+      // Add user to participants if not already there
+      if (!chatData.participantIds.includes(uid)) {
+        await chatRef.update({
+          participantIds: admin.firestore.FieldValue.arrayUnion(uid)
+        });
+
+        // Get user info for system message
+        const userSnap = await db.collection("users").doc(uid).get();
+        const userData = userSnap.data() as schema.UserDoc | undefined;
+        const userName = userData?.displayName ?? "A user";
+
+        // Send system message
+        const messageRef = chatRef.collection("messages").doc();
+        const systemMessage: schema.MessageDoc = {
+          messageId: messageRef.id,
+          senderId: "system",
+          senderName: "System",
+          senderPhotoURL: null,
+          text: `${userName} joined the event`,
+          createdAt: now,
+          type: "system"
+        };
+        await messageRef.set(systemMessage);
+
+        // Update chat metadata
+        await chatRef.update({
+          lastMessageAt: now,
+          lastMessageText: systemMessage.text,
+          lastMessageSenderId: "system",
+          lastMessageSenderName: "System"
+        });
+      }
+    }
+  }
+
   return { ok: true };
 });
 
@@ -531,6 +576,17 @@ export const deleteEvent = onCall(async (request) => {
     },
     { merge: true }
   );
+
+  // Archive the associated chat
+  const chatRef = db.collection("chats").doc(canonicalId);
+  const chatSnap = await chatRef.get();
+  if (chatSnap.exists) {
+    await chatRef.update({
+      archived: true
+    });
+    console.log("[Function] deleteEvent archived chat", { chatId: canonicalId });
+  }
+
   console.log("[Function] deleteEvent canceled", { eventId: canonicalId });
   return { eventId: canonicalId, hardDelete: false };
 });
@@ -841,5 +897,198 @@ export const listFriends = onCall(async (request) => {
   } catch (error) {
     console.error("[Function] listFriends error", error);
     throw new HttpsError("internal", (error as Error).message ?? "Failed to fetch friends.");
+  }
+});
+
+// ====================================================================
+// CHAT FUNCTIONS
+// ====================================================================
+
+/**
+ * Send a message to an event chat
+ */
+export const sendMessage = onCall(async (request) => {
+  const authUid = requireAuth(request);
+  console.log("[Function] sendMessage", request.data, "authUid:", authUid);
+
+  const payload = parseRequest(schema.sendMessageSchema, request.data ?? {}) as schema.SendMessagePayload;
+
+  try {
+    const chatRef = db.collection("chats").doc(payload.chatId);
+    const chatSnap = await chatRef.get();
+
+    if (!chatSnap.exists) {
+      throw new HttpsError("not-found", "Chat not found");
+    }
+
+    const chatData = chatSnap.data() as schema.ChatDoc;
+
+    // Verify user is a participant
+    if (!chatData.participantIds.includes(authUid)) {
+      throw new HttpsError("permission-denied", "You are not a participant in this chat");
+    }
+
+    // Get sender info
+    const userRef = db.collection("users").doc(authUid);
+    const userSnap = await userRef.get();
+    const userData = userSnap.data() as schema.UserDoc | undefined;
+    const senderName = userData?.displayName ?? "User";
+    const senderPhotoURL = userData?.photoURL ?? null;
+
+    // Create message
+    const messageRef = chatRef.collection("messages").doc();
+    const now = Timestamp.now();
+
+    const messageDoc: schema.MessageDoc = {
+      messageId: messageRef.id,
+      senderId: authUid,
+      senderName,
+      senderPhotoURL,
+      text: payload.text,
+      createdAt: now,
+      type: "text"
+    };
+
+    await messageRef.set(messageDoc);
+
+    // Update chat metadata
+    const newUnreadCounts = { ...chatData.unreadCounts };
+    chatData.participantIds.forEach(participantId => {
+      if (participantId !== authUid) {
+        newUnreadCounts[participantId] = (newUnreadCounts[participantId] || 0) + 1;
+      }
+    });
+
+    await chatRef.update({
+      lastMessageAt: now,
+      lastMessageText: payload.text.substring(0, 100),
+      lastMessageSenderId: authUid,
+      lastMessageSenderName: senderName,
+      unreadCounts: newUnreadCounts
+    });
+
+    console.log("[Function] sendMessage success", messageRef.id);
+
+    return {
+      success: true,
+      messageId: messageRef.id
+    };
+  } catch (error) {
+    console.error("[Function] sendMessage error", error);
+    if (error instanceof HttpsError) {
+      throw error;
+    }
+    throw new HttpsError("internal", (error as Error).message ?? "Failed to send message");
+  }
+});
+
+/**
+ * Get messages for a chat
+ */
+export const getMessages = onCall(async (request) => {
+  const authUid = requireAuth(request);
+  console.log("[Function] getMessages", request.data, "authUid:", authUid);
+
+  const payload = parseRequest(schema.getMessagesSchema, request.data ?? {}) as schema.GetMessagesPayload;
+
+  try {
+    const chatRef = db.collection("chats").doc(payload.chatId);
+    const chatSnap = await chatRef.get();
+
+    if (!chatSnap.exists) {
+      throw new HttpsError("not-found", "Chat not found");
+    }
+
+    const chatData = chatSnap.data() as schema.ChatDoc;
+
+    // Verify user is a participant
+    if (!chatData.participantIds.includes(authUid)) {
+      throw new HttpsError("permission-denied", "You are not a participant in this chat");
+    }
+
+    // Query messages
+    let query = chatRef.collection("messages")
+      .orderBy("createdAt", "asc")
+      .limit(payload.limit);
+
+    if (payload.before) {
+      query = query.where("createdAt", "<", Timestamp.fromDate(payload.before));
+    }
+
+    const messagesSnap = await query.get();
+
+    const messages = messagesSnap.docs.map(doc => {
+      const data = doc.data() as schema.MessageDoc;
+      return {
+        messageId: data.messageId,
+        senderId: data.senderId,
+        senderName: data.senderName,
+        senderPhotoURL: data.senderPhotoURL,
+        text: data.text,
+        createdAt: data.createdAt.toDate().toISOString(),
+        type: data.type
+      };
+    });
+
+    // Reset unread count for this user
+    const newUnreadCounts = { ...chatData.unreadCounts };
+    newUnreadCounts[authUid] = 0;
+    await chatRef.update({ unreadCounts: newUnreadCounts });
+
+    console.log("[Function] getMessages success", messages.length, "messages");
+
+    return { messages };
+  } catch (error) {
+    console.error("[Function] getMessages error", error);
+    if (error instanceof HttpsError) {
+      throw error;
+    }
+    throw new HttpsError("internal", (error as Error).message ?? "Failed to get messages");
+  }
+});
+
+/**
+ * List all chats for the current user
+ */
+export const listChats = onCall(async (request) => {
+  const authUid = requireAuth(request);
+  console.log("[Function] listChats authUid:", authUid);
+
+  try {
+    const chatsSnap = await db.collection("chats")
+      .where("participantIds", "array-contains", authUid)
+      .limit(50)
+      .get();
+
+    const chats = chatsSnap.docs
+      .filter(doc => {
+        const data = doc.data() as schema.ChatDoc;
+        // Filter out archived chats
+        return !data.archived;
+      })
+      .map(doc => {
+        const data = doc.data() as schema.ChatDoc;
+        return {
+          chatId: data.chatId,
+          eventId: data.eventId,
+          eventTitle: data.eventTitle,
+          lastMessageAt: data.lastMessageAt?.toDate().toISOString() ?? null,
+          lastMessageText: data.lastMessageText,
+          lastMessageSenderName: data.lastMessageSenderName,
+          unreadCount: data.unreadCounts[authUid] || 0,
+          participantCount: data.participantIds.length,
+          lastMessageTimestamp: data.lastMessageAt?.toMillis() ?? 0
+        };
+      });
+
+    // Sort in memory by lastMessageAt (most recent first)
+    chats.sort((a, b) => b.lastMessageTimestamp - a.lastMessageTimestamp);
+
+    console.log("[Function] listChats success", chats.length, "chats");
+
+    return { chats };
+  } catch (error) {
+    console.error("[Function] listChats error", error);
+    throw new HttpsError("internal", (error as Error).message ?? "Failed to list chats");
   }
 });

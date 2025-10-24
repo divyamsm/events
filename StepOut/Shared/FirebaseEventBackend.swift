@@ -88,8 +88,8 @@ final class FirebaseEventBackend: EventBackend {
         let canonicalID = (backendIdentifier ?? eventIdentifierMap[eventID] ?? eventID.uuidString).uppercased()
         var payload: [String: Any] = [
             "eventId": canonicalID,
-            "status": status,
-            "userId": userId.uuidString
+            "status": status
+            // Don't send userId - backend will use authenticated user's UID
         ]
         payload["eventIdVariants"] = Array(
             Set(
@@ -261,7 +261,7 @@ final class FirebaseEventBackend: EventBackend {
                 location: location,
                 imageURL: imageURL,
                 coordinate: coordinate,
-                ownerId: UUID(uuidString: dict["ownerId"] as? String ?? ""),
+                ownerId: dict["ownerId"] as? String,
                 attendingFriendIDs: attendingIDs,
                 invitedByFriendIDs: invitedByIDs,
                 sharedInviteFriendIDs: sharedInviteIDs,

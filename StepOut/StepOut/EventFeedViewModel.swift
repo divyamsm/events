@@ -287,7 +287,7 @@ final class EventFeedViewModel: ObservableObject {
             location: trimmedLocation,
             imageURL: imageURL,
             coordinate: coordinate,
-            ownerId: session.user.id,
+            ownerId: session.firebaseUID,
             attendingFriendIDs: [session.user.id],
             sharedInviteFriendIDs: invitedFriendIDs,
             privacy: privacy,
@@ -453,12 +453,14 @@ final class EventFeedViewModel: ObservableObject {
                 invitedByMe.filter { friend in invitedMe.contains(where: { $0.id == friend.id }) == false }
                     .map { FeedEvent.FriendBadge(id: $0.id, friend: $0, role: .invitedByMe) }
 
-            if let ownerId = event.ownerId {
-                let host = resolveFriend(for: ownerId, in: event, lookup: friendLookup)
-                if badges.contains(where: { $0.friend.id == host.id }) == false {
-                    badges.insert(FeedEvent.FriendBadge(id: host.id, friend: host, role: .invitedByMe), at: 0)
-                }
-            }
+            // Skip host badge for now since ownerId is Firebase UID (String), not UUID
+            // TODO: Resolve Firebase UID to Friend
+            // if let ownerId = event.ownerId {
+            //     let host = resolveFriend(for: ownerId, in: event, lookup: friendLookup)
+            //     if badges.contains(where: { $0.friend.id == host.id }) == false {
+            //         badges.insert(FeedEvent.FriendBadge(id: host.id, friend: host, role: .invitedByMe), at: 0)
+            //     }
+            // }
 
             let isAttending = appState.attendingEventIDs.contains(event.id)
             if isAttending {
@@ -477,7 +479,7 @@ final class EventFeedViewModel: ObservableObject {
                 distance: distance,
                 isAttending: isAttending,
                 attendingCount: attendingCount,
-                isEditable: (event.ownerId == session.user.id) || createdIDs.contains(event.id),
+                isEditable: (event.ownerId == session.firebaseUID) || createdIDs.contains(event.id),
                 myArrivalTime: event.arrivalTimes[session.user.id]
             )
         }
@@ -522,9 +524,10 @@ final class EventFeedViewModel: ObservableObject {
         if id == session.user.id {
             return session.user
         }
-        if let ownerId = event.ownerId, ownerId == id {
-            return Friend(id: id, name: "Host", avatarURL: nil)
-        }
+        // ownerId is now a Firebase UID string, not UUID - skip this check
+        // if let ownerId = event.ownerId, ownerId == id {
+        //     return Friend(id: id, name: "Host", avatarURL: nil)
+        // }
         let suffix = id.uuidString.prefix(4)
         return Friend(id: id, name: "Guest \(suffix)", avatarURL: nil)
     }

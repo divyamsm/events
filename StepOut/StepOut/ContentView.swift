@@ -5,6 +5,12 @@ import CoreLocation
 import UIKit
 import FirebaseAuth
 
+struct AlertContext: Identifiable {
+    let id = UUID()
+    let title: String
+    let message: String?
+}
+
 @MainActor
 struct ContentView: View {
     let appState: AppState
@@ -127,52 +133,75 @@ private struct MainAppContentView: View {
     @Binding var pendingRSVP: EventFeedViewModel.FeedEvent?
     @Binding var alertContext: AlertContext?
 
-    var body: some View {
-        NavigationStack {
-            VStack(spacing: 16) {
-                Picker("Event Filter", selection: $selectedFeedTab) {
-                    ForEach(ContentView.FeedTab.allCases, id: \.self) { tab in
-                        Text(tab.rawValue).tag(tab)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .padding(.horizontal, 20)
-                .padding(.top, 12)
+    @State private var selectedMainTab: MainTab = .home
 
-                Group {
-                    if selectedFeedTab == .upcoming {
-                        upcomingFeed
-                    } else {
-                        pastFeed
+    enum MainTab {
+        case home
+        case chats
+        case profile
+    }
+
+    var body: some View {
+        TabView(selection: $selectedMainTab) {
+            // Home Tab with Events
+            NavigationStack {
+                VStack(spacing: 16) {
+                    Picker("Event Filter", selection: $selectedFeedTab) {
+                        ForEach(ContentView.FeedTab.allCases, id: \.self) { tab in
+                            Text(tab.rawValue).tag(tab)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                    .padding(.horizontal, 20)
+                    .padding(.top, 12)
+
+                    Group {
+                        if selectedFeedTab == .upcoming {
+                            upcomingFeed
+                        } else {
+                            pastFeed
+                        }
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
+                .background(Color(.systemBackground).ignoresSafeArea())
+                .navigationTitle(selectedFeedTab == .upcoming ? "Upcoming Events" : "Past Events")
+                .toolbar {
+                    ToolbarItem(placement: .navigationBarTrailing) {
+                        Button {
+                            showingCreateEvent = true
+                        } label: {
+                            Image(systemName: "plus.circle.fill")
+                                .imageScale(.large)
+                        }
+                        .accessibilityLabel("Create event")
                     }
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-            .background(Color(.systemBackground).ignoresSafeArea())
-            .navigationTitle(selectedFeedTab == .upcoming ? "Upcoming Events" : "Past Events")
-            .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    Button {
-                        showingCreateEvent = true
-                    } label: {
-                        Image(systemName: "plus.circle.fill")
-                            .imageScale(.large)
-                    }
-                    .accessibilityLabel("Create event")
-                }
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    NavigationLink {
-                        ProfileView(authManager: authManager)
-                            .environmentObject(appState)
-                    } label: {
-                        Image(systemName: "person.crop.circle")
-                            .imageScale(.large)
-                    }
-                    .accessibilityLabel("Open profile")
-                }
+            .tabItem {
+                Label("Home", systemImage: "house.fill")
             }
+            .tag(MainTab.home)
+
+            // Chats Tab
+            ChatsTabView(authManager: authManager)
+                .tabItem {
+                    Label("Chats", systemImage: "message.fill")
+                }
+                .tag(MainTab.chats)
+
+            // Profile Tab
+            NavigationStack {
+                ProfileView(authManager: authManager)
+                    .environmentObject(appState)
+            }
+            .tabItem {
+                Label("Profile", systemImage: "person.fill")
+            }
+            .tag(MainTab.profile)
         }
+        .tint(.primary)
         .task { await viewModel.loadFeed() }
         .refreshable { await viewModel.loadFeed() }
         .sheet(item: $viewModel.shareContext) { context in
@@ -237,7 +266,7 @@ private struct MainAppContentView: View {
         .alert(item: $alertContext) { context in
             Alert(
                 title: Text(context.title),
-                message: Text(context.message),
+                message: context.message.map { Text($0) },
                 dismissButton: .default(Text("OK"))
             )
         }
@@ -563,12 +592,6 @@ private struct PastEventRow: View {
     }
 }
 
-
-private struct AlertContext: Identifiable {
-    let id = UUID()
-    let title: String
-    let message: String
-}
 
 private struct EventCardView: View {
     let feedEvent: EventFeedViewModel.FeedEvent
