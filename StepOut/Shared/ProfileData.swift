@@ -56,6 +56,7 @@ struct UserProfile {
     var displayName: String
     var username: String
     var bio: String
+    var phoneNumber: String?
     var joinDate: Date
     var primaryLocation: CLLocation?
     var photoURL: URL?
@@ -80,6 +81,7 @@ enum ProfileRepository {
             displayName: "Bharath Raghunath",
             username: "@bharathraghunath",
             bio: "Building a shared event feed with friends.",
+            phoneNumber: nil,
             joinDate: calendar.date(from: DateComponents(year: 2023, month: 5, day: 12)) ?? .now,
             primaryLocation: nil,
             photoURL: nil,

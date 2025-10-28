@@ -117,11 +117,12 @@ export const profileUpdateSchema = z
       .regex(/^[A-Za-z0-9._-]+$/, "Usernames may contain letters, numbers, dots, underscores, and hyphens.")
       .optional(),
     bio: z.string().max(200).optional().nullable(),
+    phoneNumber: z.string().regex(/^\+[1-9]\d{1,14}$/, "Phone number must be in E.164 format (e.g., +12345678901)").optional().nullable(),
     primaryLocation: geoSchema,
     photoURL: z.string().url().optional().nullable()
   })
   .superRefine((value, ctx) => {
-    const mutableKeys: Array<keyof typeof value> = ["displayName", "username", "bio", "primaryLocation", "photoURL"];
+    const mutableKeys: Array<keyof typeof value> = ["displayName", "username", "bio", "phoneNumber", "primaryLocation", "photoURL"];
     const hasUpdate = mutableKeys.some((key) => value[key] !== undefined);
     if (!hasUpdate) {
       ctx.addIssue({
@@ -245,6 +246,19 @@ export const friendInviteSchema = z.object({
 });
 
 export type FriendInvitePayload = z.infer<typeof friendInviteSchema>;
+
+export const sendFriendRequestSchema = z.object({
+  recipientUserId: z.string().min(1)
+});
+
+export type SendFriendRequestPayload = z.infer<typeof sendFriendRequestSchema>;
+
+export const respondToFriendRequestSchema = z.object({
+  inviteId: z.string().min(1),
+  accept: z.boolean()
+});
+
+export type RespondToFriendRequestPayload = z.infer<typeof respondToFriendRequestSchema>;
 
 export const listFriendsSchema = z.object({
   userId: z.string().min(1),

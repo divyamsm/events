@@ -3,6 +3,7 @@ import Contacts
 import SwiftUI
 import FirebaseAuth
 import FirebaseFirestore
+import FirebaseFunctions
 
 struct AppContact: Identifiable {
     let id = UUID()
@@ -22,30 +23,47 @@ class ContactsManager: ObservableObject {
     private let contactStore = CNContactStore()
     private let db = Firestore.firestore()
 
+    init() {
+        print("[Contacts] 🔵 ContactsManager initialized")
+    }
+
     func checkPermission() {
         permissionStatus = CNContactStore.authorizationStatus(for: .contacts)
+        print("[Contacts] 🔵 checkPermission() called, status: \(permissionStatus.rawValue)")
     }
 
     func requestPermission() async -> Bool {
         do {
             let granted = try await contactStore.requestAccess(for: .contacts)
-            permissionStatus = granted ? .authorized : .denied
+            await MainActor.run {
+                permissionStatus = granted ? .authorized : .denied
+            }
+            print("[Contacts] Permission requested, granted: \(granted), status: \(permissionStatus.rawValue)")
             return granted
         } catch {
             print("[Contacts] Error requesting permission: \(error)")
-            permissionStatus = .denied
+            await MainActor.run {
+                permissionStatus = .denied
+            }
             return false
         }
     }
 
     func fetchContacts() async {
         guard permissionStatus == .authorized else {
-            errorMessage = "Contacts permission not granted"
+            await MainActor.run {
+                errorMessage = "Contacts permission not granted"
+            }
+            print("[Contacts] ❌ Cannot fetch - permission status: \(permissionStatus.rawValue)")
             return
         }
 
-        isLoading = true
-        errorMessage = nil
+        print("[Contacts] ✅ Starting fetch, permission: \(permissionStatus.rawValue)")
+
+        await MainActor.run {
+            isLoading = true
+            errorMessage = nil
+        }
 
         let keysToFetch = [
             CNContactGivenNameKey,
@@ -57,22 +75,24 @@ class ContactsManager: ObservableObject {
 
         let request = CNContactFetchRequest(keysToFetch: keysToFetch)
 
-        var fetchedContacts: [CNContact] = []
-
-        do {
-            try contactStore.enumerateContacts(with: request) { contact, _ in
-                fetchedContacts.append(contact)
+        // Fetch contacts on background thread to avoid blocking UI
+        let fetchedContacts: [CNContact] = await Task.detached(priority: .userInitiated) {
+            var contacts: [CNContact] = []
+            do {
+                try self.contactStore.enumerateContacts(with: request) { contact, _ in
+                    contacts.append(contact)
+                }
+                print("[Contacts] Fetched \(contacts.count) contacts from device")
+            } catch {
+                print("[Contacts] ❌ Error enumerating contacts: \(error)")
             }
+            return contacts
+        }.value
 
-            print("[Contacts] Fetched \(fetchedContacts.count) contacts")
+        // Match with app users
+        await matchWithAppUsers(contacts: fetchedContacts)
 
-            // Match with app users
-            await matchWithAppUsers(contacts: fetchedContacts)
-
-            isLoading = false
-        } catch {
-            print("[Contacts] Error fetching: \(error)")
-            errorMessage = "Failed to fetch contacts"
+        await MainActor.run {
             isLoading = false
         }
     }
@@ -157,9 +177,13 @@ class ContactsManager: ObservableObject {
             }
 
             // Sort: app users first
-            self.contacts = appContacts.sorted { $0.isAppUser && !$1.isAppUser }
+            let sortedContacts = appContacts.sorted { $0.isAppUser && !$1.isAppUser }
 
-            print("[Contacts] Matched \(appContacts.filter { $0.isAppUser }.count) app users")
+            await MainActor.run {
+                self.contacts = sortedContacts
+            }
+
+            print("[Contacts] Total contacts: \(sortedContacts.count), App users: \(appContacts.filter { $0.isAppUser }.count)")
 
         } catch {
             print("[Contacts] Error matching users: \(error)")
@@ -168,6 +192,23 @@ class ContactsManager: ObservableObject {
 
     private func cleanPhoneNumber(_ phone: String) -> String {
         return phone.components(separatedBy: CharacterSet.decimalDigits.inverted).joined()
+    }
+
+    func sendFriendRequest(to userId: String) async throws {
+        #if canImport(FirebaseFunctions)
+        let functions = Functions.functions()
+        let callable = functions.httpsCallable("sendFriendRequest")
+
+        print("[Contacts] Sending friend request to: \(userId)")
+
+        do {
+            let result = try await callable.call(["recipientUserId": userId])
+            print("[Contacts] Friend request sent successfully: \(result.data)")
+        } catch {
+            print("[Contacts] Error sending friend request: \(error)")
+            throw error
+        }
+        #endif
     }
 
     func shareInviteLink(for contact: CNContact) {
@@ -188,10 +229,14 @@ class ContactsManager: ObservableObject {
             applicationActivities: nil
         )
 
-        // Present it
+        // Present it on the topmost view controller
         if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
            let rootViewController = windowScene.windows.first?.rootViewController {
-            rootViewController.present(activityVC, animated: true)
+            var topController = rootViewController
+            while let presented = topController.presentedViewController {
+                topController = presented
+            }
+            topController.present(activityVC, animated: true)
         }
     }
 }

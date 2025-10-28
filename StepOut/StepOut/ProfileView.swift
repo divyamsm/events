@@ -2,6 +2,7 @@ import SwiftUI
 import UIKit
 import CoreLocation
 import FirebaseAuth
+import FirebaseFirestore
 #if canImport(FirebaseFunctions)
 import FirebaseFunctions
 #endif
@@ -14,6 +15,7 @@ struct RemoteProfileResponse {
         let displayName: String
         let username: String?
         let bio: String?
+        let phoneNumber: String?
         let photoURL: URL?
         let joinDate: Date?
         let primaryLocation: (latitude: Double, longitude: Double)?
@@ -88,6 +90,7 @@ struct RemoteProfileResponse {
         let displayName = profileDict["displayName"] as? String ?? "Friend"
         let username = profileDict["username"] as? String
         let bio = profileDict["bio"] as? String
+        let phoneNumber = profileDict["phoneNumber"] as? String
         let photoURL = (profileDict["photoURL"] as? String).flatMap(URL.init(string:))
 
         let joinDate: Date?
@@ -119,6 +122,7 @@ struct RemoteProfileResponse {
             displayName: displayName,
             username: username,
             bio: bio,
+            phoneNumber: phoneNumber,
             photoURL: photoURL,
             joinDate: joinDate,
             primaryLocation: primaryLocation,
@@ -173,7 +177,7 @@ struct RemoteProfileResponse {
 
 protocol ProfileBackend {
     func fetchProfile(userId: UUID) async throws -> RemoteProfileResponse
-    func updateProfile(userId: UUID, displayName: String, username: String?, bio: String?, primaryLocation: CLLocationCoordinate2D?) async throws -> RemoteProfileResponse
+    func updateProfile(userId: UUID, displayName: String, username: String?, bio: String?, phoneNumber: String?, primaryLocation: CLLocationCoordinate2D?) async throws -> RemoteProfileResponse
     func fetchAttendedEvents(userId: UUID, limit: Int) async throws -> [RemoteProfileResponse.RemoteAttendedEvent]
 }
 
@@ -194,15 +198,18 @@ final class FirebaseProfileBackend: ProfileBackend {
         return response
     }
 
-    func updateProfile(userId: UUID, displayName: String, username: String?, bio: String?, primaryLocation: CLLocationCoordinate2D?) async throws -> RemoteProfileResponse {
+    func updateProfile(userId: UUID, displayName: String, username: String?, bio: String?, phoneNumber: String?, primaryLocation: CLLocationCoordinate2D?) async throws -> RemoteProfileResponse {
         let callable = functions.httpsCallable("updateProfile")
         var payload: [String: Any] = ["userId": userId.uuidString, "displayName": displayName]
         if let username { payload["username"] = username }
         if let bio { payload["bio"] = bio }
+        if let phoneNumber { payload["phoneNumber"] = phoneNumber }
         if let primaryLocation {
             payload["primaryLocation"] = ["lat": primaryLocation.latitude, "lng": primaryLocation.longitude]
         }
+        print("[Backend] updateProfile payload: \(payload)")
         let result = try await callable.call(payload)
+        print("[Backend] updateProfile response received")
         guard let data = result.data as? [String: Any], let response = RemoteProfileResponse(dictionary: data) else {
             throw NSError(domain: "FirebaseProfileBackend", code: -1, userInfo: [NSLocalizedDescriptionKey: "Malformed updateProfile response"])
         }
@@ -282,7 +289,7 @@ struct MockProfileBackend: ProfileBackend {
         return response
     }
 
-    func updateProfile(userId: UUID, displayName: String, username: String?, bio: String?, primaryLocation: CLLocationCoordinate2D?) async throws -> RemoteProfileResponse {
+    func updateProfile(userId: UUID, displayName: String, username: String?, bio: String?, phoneNumber: String?, primaryLocation: CLLocationCoordinate2D?) async throws -> RemoteProfileResponse {
         try await fetchProfile(userId: userId)
     }
 
@@ -365,28 +372,34 @@ final class ProfileViewModel: ObservableObject {
         }
     }
 
-    func saveProfile(displayName: String, username: String?, bio: String?, primaryLocation: CLLocationCoordinate2D?) async {
+    func saveProfile(displayName: String, username: String?, bio: String?, phoneNumber: String?, primaryLocation: CLLocationCoordinate2D?) async {
         do {
+            print("[Profile] 🔵 saveProfile called with phoneNumber: '\(phoneNumber ?? "nil")'")
             let trimmed = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
             var sanitizedUsername: String?
             if let username, username.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false {
                 let clean = username.trimmingCharacters(in: .whitespacesAndNewlines)
                 sanitizedUsername = clean.hasPrefix("@") ? String(clean.dropFirst()) : clean
             }
+            print("[Profile] 🔵 Calling backend.updateProfile with phoneNumber: '\(phoneNumber ?? "nil")'")
             let response = try await backend.updateProfile(
                 userId: userId,
                 displayName: trimmed,
                 username: sanitizedUsername,
                 bio: bio,
+                phoneNumber: phoneNumber,
                 primaryLocation: primaryLocation
             )
+            print("[Profile] ✅ Backend updateProfile succeeded")
             profile = mapResponse(response)
             errorMessage = nil
             logDebug("saveProfile succeeded", extra: [
                 "displayName": trimmed,
-                "username": sanitizedUsername ?? "(nil)"
+                "username": sanitizedUsername ?? "(nil)",
+                "phoneNumber": phoneNumber ?? "(nil)"
             ])
         } catch {
+            print("[Profile] ❌ saveProfile failed: \(error.localizedDescription)")
             logFailure(context: "saveProfile", error: error)
             errorMessage = readableMessage(for: error)
         }
@@ -420,6 +433,7 @@ final class ProfileViewModel: ObservableObject {
             displayName: base.displayName,
             username: usernameValue,
             bio: base.bio ?? "Tap to add a bio",
+            phoneNumber: base.phoneNumber,
             joinDate: base.joinDate ?? Date(),
             primaryLocation: base.primaryLocation.map { CLLocation(latitude: $0.latitude, longitude: $0.longitude) },
             photoURL: base.photoURL,
@@ -476,9 +490,12 @@ struct ProfileView: View {
     @State private var showSettings = false
     @State private var showFriends = false
     @State private var showEditProfile = false
+    @State private var showUnifiedFriends = false
     @State private var selectedDayEvents: [AttendedEvent]?
     @State private var selectedDate: Date?
     @State private var showSignOutConfirmation = false
+    @State private var pendingRequestsCount = 0
+    @State private var showPhoneNumberPrompt = false
 
     init(authManager: AuthenticationManager? = nil) {
         self.authManager = authManager
@@ -506,6 +523,24 @@ struct ProfileView: View {
         }
         .task {
             await viewModel.loadProfile()
+
+            // Check if user needs to add phone number
+            if let profile = viewModel.profile, profile.phoneNumber == nil || profile.phoneNumber?.isEmpty == true {
+                // Show prompt after a delay
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+                    showPhoneNumberPrompt = true
+                }
+            }
+
+            // Listen for pending friend requests
+            if let firebaseUID = authManager?.currentSession?.firebaseUID {
+                Firestore.firestore().collection("invites")
+                    .whereField("recipientUserId", isEqualTo: firebaseUID)
+                    .whereField("status", isEqualTo: "pending")
+                    .addSnapshotListener { snapshot, _ in
+                        pendingRequestsCount = snapshot?.documents.count ?? 0
+                    }
+            }
         }
         .sheet(isPresented: $showFriends) {
             if let profile = viewModel.profile {
@@ -518,12 +553,13 @@ struct ProfileView: View {
         }
         .sheet(isPresented: $showEditProfile) {
             if let profile = viewModel.profile {
-                EditProfileSheetView(profile: profile) { updatedName, updatedUsername, updatedBio in
+                EditProfileSheetView(profile: profile) { updatedName, updatedUsername, updatedBio, updatedPhone in
                     Task {
                         await viewModel.saveProfile(
                             displayName: updatedName,
                             username: updatedUsername.isEmpty ? nil : updatedUsername,
                             bio: updatedBio,
+                            phoneNumber: updatedPhone.isEmpty ? nil : updatedPhone,
                             primaryLocation: nil
                         )
                     }
@@ -531,6 +567,11 @@ struct ProfileView: View {
                     viewModel.errorMessage = "Password resets will be enabled once authentication is live."
                 }
                 .presentationDetents([.medium, .large])
+            }
+        }
+        .sheet(isPresented: $showUnifiedFriends) {
+            if let firebaseUID = authManager?.currentSession?.firebaseUID {
+                UnifiedFriendsView(userId: firebaseUID)
             }
         }
         .sheet(isPresented: $showSettings) {
@@ -546,10 +587,6 @@ struct ProfileView: View {
                     }
 
                     Section("Social") {
-                        NavigationLink(destination: InviteFriendsView()) {
-                            Label("Invite Friends", systemImage: "person.badge.plus")
-                        }
-
                         NavigationLink(destination: EventPreferencesView(isOnboarding: false, onComplete: nil)) {
                             Label("Event Preferences", systemImage: "star")
                         }
@@ -592,6 +629,14 @@ struct ProfileView: View {
             Button("OK", role: .cancel) { viewModel.errorMessage = nil }
         } message: {
             Text(viewModel.errorMessage ?? "")
+        }
+        .alert("Add Phone Number", isPresented: $showPhoneNumberPrompt) {
+            Button("Add Now") {
+                showEditProfile = true
+            }
+            Button("Later", role: .cancel) {}
+        } message: {
+            Text("Add your phone number to connect with friends on StepOut!")
         }
         .sheet(isPresented: Binding(
             get: { selectedDayEvents != nil },
@@ -687,11 +732,25 @@ struct ProfileView: View {
 
     private func actionRow(profile: UserProfile) -> some View {
         HStack(spacing: 12) {
-            Button { showFriends.toggle() } label: {
-                actionButtonLabel(
-                    systemImage: "person.2.fill",
-                    title: "\(profile.friends.count) Friends"
-                )
+            Button { showUnifiedFriends.toggle() } label: {
+                ZStack(alignment: .topTrailing) {
+                    actionButtonLabel(
+                        systemImage: "person.2.fill",
+                        title: "\(profile.friends.count) Friends"
+                    )
+
+                    // Notification badge
+                    if pendingRequestsCount > 0 {
+                        Text("\(pendingRequestsCount)")
+                            .font(.caption2.bold())
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(Color.red)
+                            .clipShape(Capsule())
+                            .offset(x: 8, y: -8)
+                    }
+                }
             }
             .buttonStyle(.plain)
 
@@ -1085,14 +1144,15 @@ private struct EditProfileSheetView: View {
     @Environment(\.dismiss) private var dismiss
 
     let profile: UserProfile
-    let onSave: (String, String, String) -> Void
+    let onSave: (String, String, String, String) -> Void
     let onResetPassword: () -> Void
 
     @State private var displayName: String
     @State private var username: String
     @State private var bio: String
+    @State private var phoneNumber: String
 
-    init(profile: UserProfile, onSave: @escaping (String, String, String) -> Void, onResetPassword: @escaping () -> Void) {
+    init(profile: UserProfile, onSave: @escaping (String, String, String, String) -> Void, onResetPassword: @escaping () -> Void) {
         self.profile = profile
         self.onSave = onSave
         self.onResetPassword = onResetPassword
@@ -1100,38 +1160,296 @@ private struct EditProfileSheetView: View {
         let usernameValue = profile.username.hasPrefix("@") ? String(profile.username.dropFirst()) : profile.username
         _username = State(initialValue: usernameValue)
         _bio = State(initialValue: profile.bio)
+        _phoneNumber = State(initialValue: profile.phoneNumber ?? "")
     }
 
     var body: some View {
         NavigationStack {
-            Form {
-                Section(header: Text("Profile")) {
-                    TextField("Display name", text: $displayName)
-                    TextField("Username", text: $username)
+            ScrollView {
+                VStack(spacing: 24) {
+                    // Profile Photo Section
+                    VStack(spacing: 12) {
+                        ZStack(alignment: .bottomTrailing) {
+                            Circle()
+                                .fill(
+                                    LinearGradient(
+                                        colors: [.blue, .purple],
+                                        startPoint: .topLeading,
+                                        endPoint: .bottomTrailing
+                                    )
+                                )
+                                .frame(width: 100, height: 100)
+                                .overlay {
+                                    Text(displayName.prefix(1))
+                                        .font(.system(size: 40, weight: .bold))
+                                        .foregroundColor(.white)
+                                }
+
+                            Button(action: {
+                                // TODO: Add photo upload
+                            }) {
+                                Circle()
+                                    .fill(Color.blue)
+                                    .frame(width: 32, height: 32)
+                                    .overlay {
+                                        Image(systemName: "camera.fill")
+                                            .font(.system(size: 14))
+                                            .foregroundColor(.white)
+                                    }
+                            }
+                        }
+
+                        Text("@\(username)")
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                    }
+                    .padding(.top, 20)
+
+                    // Form Fields
+                    VStack(spacing: 20) {
+                        // Display Name
+                        ModernTextField(
+                            title: "Display Name",
+                            placeholder: "Your name",
+                            text: $displayName,
+                            icon: "person.fill"
+                        )
+
+                        // Username
+                        ModernTextField(
+                            title: "Username",
+                            placeholder: "username",
+                            text: $username,
+                            icon: "at"
+                        )
                         .textInputAutocapitalization(.never)
                         .disableAutocorrection(true)
-                    TextField("Bio", text: $bio, axis: .vertical)
-                        .lineLimit(3...5)
-                }
 
-                Section {
-                    Button("Reset password") {
-                        onResetPassword()
+                        // Bio
+                        VStack(alignment: .leading, spacing: 8) {
+                            Label("Bio", systemImage: "text.alignleft")
+                                .font(.subheadline.bold())
+                                .foregroundColor(.secondary)
+
+                            TextField("Tell us about yourself", text: $bio, axis: .vertical)
+                                .lineLimit(3...6)
+                                .padding()
+                                .background(
+                                    RoundedRectangle(cornerRadius: 12)
+                                        .fill(Color(.secondarySystemBackground))
+                                )
+                        }
+
+                        // Phone Number
+                        PhoneNumberField(
+                            phoneNumber: $phoneNumber
+                        )
+
+                        // Actions
+                        VStack(spacing: 12) {
+                            Button(action: {
+                                print("[Profile] 🔵 Save button tapped - phone: '\(phoneNumber)'")
+                                onSave(displayName.trimmed(), username.trimmed(), bio, phoneNumber.trimmed())
+                                dismiss()
+                            }) {
+                                Text("Save Changes")
+                                    .font(.headline)
+                                    .foregroundColor(.white)
+                                    .frame(maxWidth: .infinity)
+                                    .padding()
+                                    .background(saveButtonBackground)
+                                    .cornerRadius(12)
+                            }
+                            .disabled(displayName.trimmed().isEmpty)
+
+                            Button(action: {
+                                onResetPassword()
+                            }) {
+                                Text("Reset Password")
+                                    .font(.subheadline)
+                                    .foregroundColor(.blue)
+                            }
+                        }
+                        .padding(.top, 8)
                     }
+                    .padding(.horizontal, 20)
                 }
+                .padding(.bottom, 40)
             }
+            .background(Color(.systemBackground))
             .navigationTitle("Edit Profile")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") {
-                        onSave(displayName.trimmed(), username.trimmed(), bio)
+                    Button("Cancel") {
                         dismiss()
                     }
-                    .disabled(displayName.trimmed().isEmpty)
+                }
+            }
+        }
+    }
+
+    private var saveButtonBackground: some ShapeStyle {
+        if displayName.trimmed().isEmpty {
+            return AnyShapeStyle(Color.gray)
+        } else {
+            return AnyShapeStyle(LinearGradient(
+                colors: [.blue, .purple],
+                startPoint: .leading,
+                endPoint: .trailing
+            ))
+        }
+    }
+}
+
+// Modern Text Field Component
+private struct ModernTextField: View {
+    let title: String
+    let placeholder: String
+    @Binding var text: String
+    let icon: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Label(title, systemImage: icon)
+                .font(.subheadline.bold())
+                .foregroundColor(.secondary)
+
+            TextField(placeholder, text: $text)
+                .padding()
+                .background(
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(Color(.secondarySystemBackground))
+                )
+        }
+    }
+}
+
+// Phone Number Field with Country Code
+private struct PhoneNumberField: View {
+    @Binding var phoneNumber: String
+    @State private var selectedCountryCode = "+1"
+    @State private var numberWithoutCode = ""
+    @State private var showCountryPicker = false
+
+    private let countryCodes = [
+        ("+1", "🇺🇸 United States / Canada"),
+        ("+44", "🇬🇧 United Kingdom"),
+        ("+91", "🇮🇳 India"),
+        ("+86", "🇨🇳 China"),
+        ("+81", "🇯🇵 Japan"),
+        ("+49", "🇩🇪 Germany"),
+        ("+33", "🇫🇷 France"),
+        ("+61", "🇦🇺 Australia"),
+        ("+82", "🇰🇷 South Korea"),
+        ("+52", "🇲🇽 Mexico"),
+        ("+55", "🇧🇷 Brazil"),
+        ("+7", "🇷🇺 Russia"),
+        ("+39", "🇮🇹 Italy"),
+        ("+34", "🇪🇸 Spain"),
+    ]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Label("Phone Number", systemImage: "phone.fill")
+                .font(.subheadline.bold())
+                .foregroundColor(.secondary)
+
+            HStack(spacing: 12) {
+                // Country Code Picker
+                Button(action: { showCountryPicker.toggle() }) {
+                    HStack(spacing: 4) {
+                        Text(selectedCountryCode)
+                            .font(.body)
+                        Image(systemName: "chevron.down")
+                            .font(.caption)
+                    }
+                    .foregroundColor(.primary)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 16)
+                    .background(
+                        RoundedRectangle(cornerRadius: 12)
+                            .fill(Color(.secondarySystemBackground))
+                    )
+                }
+
+                // Phone Number Input
+                TextField("2137065381", text: $numberWithoutCode)
+                    .keyboardType(.numberPad)
+                    .onChange(of: numberWithoutCode) { newValue in
+                        // Format and update the full phone number
+                        let cleaned = newValue.filter { $0.isNumber }
+                        numberWithoutCode = cleaned
+                        phoneNumber = selectedCountryCode + cleaned
+                    }
+                    .padding()
+                    .background(
+                        RoundedRectangle(cornerRadius: 12)
+                            .fill(Color(.secondarySystemBackground))
+                    )
+            }
+
+            // Format hint
+            Text("Format: \(selectedCountryCode) followed by your number")
+                .font(.caption)
+                .foregroundColor(.secondary)
+        }
+        .onAppear {
+            // Parse existing phone number
+            if !phoneNumber.isEmpty {
+                // Find matching country code
+                if let match = countryCodes.first(where: { phoneNumber.hasPrefix($0.0) }) {
+                    selectedCountryCode = match.0
+                    numberWithoutCode = String(phoneNumber.dropFirst(selectedCountryCode.count))
+                }
+            }
+        }
+        .onChange(of: selectedCountryCode) { newCode in
+            phoneNumber = newCode + numberWithoutCode
+        }
+        .sheet(isPresented: $showCountryPicker) {
+            CountryCodePickerView(
+                selectedCountryCode: $selectedCountryCode,
+                countryCodes: countryCodes,
+                dismiss: { showCountryPicker = false }
+            )
+        }
+    }
+}
+
+// Country Code Picker View
+private struct CountryCodePickerView: View {
+    @Binding var selectedCountryCode: String
+    let countryCodes: [(String, String)]
+    let dismiss: () -> Void
+
+    var body: some View {
+        NavigationStack {
+            List {
+                ForEach(countryCodes, id: \.0) { code, name in
+                    Button(action: {
+                        selectedCountryCode = code
+                        dismiss()
+                    }) {
+                        HStack {
+                            Text(name)
+                                .foregroundColor(.primary)
+                            Spacer()
+                            if selectedCountryCode == code {
+                                Image(systemName: "checkmark")
+                                    .foregroundColor(.blue)
+                            }
+                        }
+                    }
+                }
+            }
+            .navigationTitle("Select Country")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("Cancel") {
+                        dismiss()
+                    }
                 }
             }
         }

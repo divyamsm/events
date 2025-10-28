@@ -118,6 +118,7 @@ async function buildProfilePayload(userId: string) {
         displayName: "Friend",
         username: null,
         bio: null,
+        phoneNumber: null,
         photoURL: null,
         joinDate: null,
         primaryLocation: null,
@@ -138,6 +139,7 @@ async function buildProfilePayload(userId: string) {
   const displayName = data.displayName ?? "Friend";
   const username = data.username ?? null;
   const bio = data.bio ?? null;
+  const phoneNumber = data.phoneNumber ?? null;
   const photoURL = data.photoURL ?? null;
   const joinDate = data.createdAt instanceof Timestamp ? (data.createdAt as Timestamp).toDate().toISOString() : null;
   const primaryLocation = data.primaryLocation ?? null;
@@ -200,6 +202,7 @@ async function buildProfilePayload(userId: string) {
       displayName,
       username,
       bio,
+      phoneNumber,
       photoURL,
       joinDate,
       primaryLocation,
@@ -642,6 +645,9 @@ export const updateProfile = onCall(async (request) => {
     if (payload.bio !== undefined) {
       updates.bio = payload.bio ?? null;
     }
+    if (payload.phoneNumber !== undefined) {
+      updates.phoneNumber = payload.phoneNumber ?? null;
+    }
     if (payload.primaryLocation !== undefined) {
       updates.primaryLocation = payload.primaryLocation ?? null;
     }
@@ -803,6 +809,153 @@ export const sendFriendInvite = onCall(async (request) => {
     console.error("[Function] sendFriendInvite error", error);
     if (error instanceof HttpsError) throw error;
     throw new HttpsError("internal", (error as Error).message ?? "Failed to send friend invite.");
+  }
+});
+
+/**
+ * Send a friend request to another user already on the app
+ */
+export const sendFriendRequest = onCall(async (request) => {
+  const authUid = requireAuth(request);
+  const payload: schema.SendFriendRequestPayload = parseRequest(schema.sendFriendRequestSchema, request.data);
+  console.log("[Function] sendFriendRequest", { from: authUid, to: payload.recipientUserId });
+
+  const now = Timestamp.now();
+  const inviteRef = db.collection("invites").doc();
+
+  try {
+    // Check if recipient exists
+    const recipientDoc = await db.collection("users").doc(payload.recipientUserId).get();
+    if (!recipientDoc.exists) {
+      throw new HttpsError("not-found", "Recipient user not found");
+    }
+
+    // Check if already friends
+    const existingFriendship = await db.collection("friends")
+      .where("userId", "==", authUid)
+      .where("friendId", "==", payload.recipientUserId)
+      .get();
+
+    if (!existingFriendship.empty) {
+      throw new HttpsError("already-exists", "Already friends with this user");
+    }
+
+    // Check if friend request already exists
+    const existingRequest = await db.collection("invites")
+      .where("senderId", "==", authUid)
+      .where("recipientUserId", "==", payload.recipientUserId)
+      .where("status", "==", "pending")
+      .get();
+
+    if (!existingRequest.empty) {
+      throw new HttpsError("already-exists", "Friend request already sent");
+    }
+
+    // Create friend request
+    const inviteDoc: schema.FriendInviteDoc = {
+      senderId: authUid,
+      recipientUserId: payload.recipientUserId,
+      recipientPhone: null,
+      recipientEmail: null,
+      status: "pending",
+      createdAt: now,
+      updatedAt: now
+    };
+
+    await inviteRef.set(inviteDoc);
+
+    console.log("[Function] sendFriendRequest created", { inviteId: inviteRef.id });
+
+    return {
+      inviteId: inviteRef.id,
+      status: "pending"
+    };
+  } catch (error) {
+    console.error("[Function] sendFriendRequest error", error);
+    if (error instanceof HttpsError) throw error;
+    throw new HttpsError("internal", (error as Error).message ?? "Failed to send friend request");
+  }
+});
+
+/**
+ * Accept or decline a friend request
+ */
+export const respondToFriendRequest = onCall(async (request) => {
+  const authUid = requireAuth(request);
+  const payload: schema.RespondToFriendRequestPayload = parseRequest(schema.respondToFriendRequestSchema, request.data);
+  console.log("[Function] respondToFriendRequest", { user: authUid, inviteId: payload.inviteId, accept: payload.accept });
+
+  const now = Timestamp.now();
+
+  try {
+    const inviteRef = db.collection("invites").doc(payload.inviteId);
+    const inviteSnap = await inviteRef.get();
+
+    if (!inviteSnap.exists) {
+      throw new HttpsError("not-found", "Friend request not found");
+    }
+
+    const invite = inviteSnap.data() as schema.FriendInviteDoc;
+
+    // Verify the authenticated user is the recipient
+    if (invite.recipientUserId !== authUid) {
+      throw new HttpsError("permission-denied", "You can only respond to your own friend requests");
+    }
+
+    if (invite.status !== "pending") {
+      throw new HttpsError("failed-precondition", "Friend request already responded to");
+    }
+
+    if (payload.accept) {
+      // Create bidirectional friendship
+      const friend1: schema.FriendDoc = {
+        userId: authUid,
+        friendId: invite.senderId,
+        status: "active",
+        createdAt: now,
+        updatedAt: now
+      };
+
+      const friend2: schema.FriendDoc = {
+        userId: invite.senderId,
+        friendId: authUid,
+        status: "active",
+        createdAt: now,
+        updatedAt: now
+      };
+
+      await db.collection("friends").add(friend1);
+      await db.collection("friends").add(friend2);
+
+      // Update invite status
+      await inviteRef.update({
+        status: "accepted",
+        updatedAt: now
+      });
+
+      console.log("[Function] respondToFriendRequest accepted", { inviteId: payload.inviteId });
+
+      return {
+        status: "accepted",
+        friendId: invite.senderId
+      };
+    } else {
+      // Decline request
+      await inviteRef.update({
+        status: "declined",
+        updatedAt: now
+      });
+
+      console.log("[Function] respondToFriendRequest declined", { inviteId: payload.inviteId });
+
+      return {
+        status: "declined"
+      };
+    }
+  } catch (error) {
+    console.error("[Function] respondToFriendRequest error", error);
+    if (error instanceof HttpsError) throw error;
+    throw new HttpsError("internal", (error as Error).message ?? "Failed to respond to friend request");
   }
 });
 

@@ -4,6 +4,8 @@ import Contacts
 struct InviteFriendsView: View {
     @StateObject private var contactsManager = ContactsManager()
     @State private var searchText = ""
+    @State private var showSuccessToast = false
+    @State private var successMessage = ""
     @Environment(\.dismiss) var dismiss
 
     var filteredContacts: [AppContact] {
@@ -43,7 +45,32 @@ struct InviteFriendsView: View {
             }
             .searchable(text: $searchText, prompt: "Search contacts")
             .onAppear {
+                print("[Contacts] 🔵 InviteFriendsView appeared")
                 contactsManager.checkPermission()
+
+                // If permission already granted, fetch contacts
+                if contactsManager.permissionStatus == .authorized && contactsManager.contacts.isEmpty {
+                    print("[Contacts] 🔵 Permission already granted, fetching contacts...")
+                    Task {
+                        await contactsManager.fetchContacts()
+                    }
+                }
+            }
+            .overlay(alignment: .top) {
+                if showSuccessToast {
+                    VStack {
+                        Text(successMessage)
+                            .font(.subheadline)
+                            .foregroundColor(.white)
+                            .padding()
+                            .background(Color.green.opacity(0.95))
+                            .cornerRadius(10)
+                            .shadow(radius: 10)
+                            .transition(.move(edge: .top).combined(with: .opacity))
+                            .padding(.top, 60)
+                    }
+                    .animation(.spring(), value: showSuccessToast)
+                }
             }
         }
     }
@@ -72,10 +99,16 @@ struct InviteFriendsView: View {
             }
 
             Button(action: {
+                print("[Contacts] 🔵 Allow Access button tapped")
                 Task {
+                    print("[Contacts] 🔵 Requesting permission...")
                     let granted = await contactsManager.requestPermission()
+                    print("[Contacts] 🔵 Permission result: \(granted)")
                     if granted {
+                        print("[Contacts] 🔵 Fetching contacts...")
                         await contactsManager.fetchContacts()
+                    } else {
+                        print("[Contacts] ❌ Permission denied")
                     }
                 }
             }) {
@@ -131,7 +164,7 @@ struct InviteFriendsView: View {
             if !appUsers.isEmpty {
                 Section {
                     ForEach(appUsers) { appContact in
-                        ContactRow(appContact: appContact, contactsManager: contactsManager)
+                        ContactRow(appContact: appContact, contactsManager: contactsManager, successMessage: $successMessage, showSuccessToast: $showSuccessToast)
                     }
                 } header: {
                     HStack {
@@ -147,7 +180,7 @@ struct InviteFriendsView: View {
             if !nonAppUsers.isEmpty {
                 Section {
                     ForEach(nonAppUsers) { appContact in
-                        ContactRow(appContact: appContact, contactsManager: contactsManager)
+                        ContactRow(appContact: appContact, contactsManager: contactsManager, successMessage: $successMessage, showSuccessToast: $showSuccessToast)
                     }
                 } header: {
                     HStack {
@@ -164,6 +197,8 @@ struct InviteFriendsView: View {
 struct ContactRow: View {
     let appContact: AppContact
     let contactsManager: ContactsManager
+    @Binding var successMessage: String
+    @Binding var showSuccessToast: Bool
 
     var body: some View {
         HStack(spacing: 12) {
@@ -216,15 +251,49 @@ struct ContactRow: View {
 
             // Action Button
             if appContact.isAppUser {
-                // Add Friend button (placeholder)
+                // Add Friend button
                 Button(action: {
-                    // TODO: Implement add friend functionality
+                    guard let userId = appContact.userId else { return }
+                    Task {
+                        do {
+                            try await contactsManager.sendFriendRequest(to: userId)
+                            print("[Contacts] ✅ Friend request sent to \(fullName)")
+
+                            // Show success toast
+                            await MainActor.run {
+                                successMessage = "Friend request sent to \(fullName)"
+                                showSuccessToast = true
+
+                                // Hide after 2 seconds
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                                    showSuccessToast = false
+                                }
+                            }
+                        } catch {
+                            print("[Contacts] ❌ Failed to send friend request: \(error.localizedDescription)")
+
+                            // Show error toast
+                            await MainActor.run {
+                                successMessage = "Failed to send request"
+                                showSuccessToast = true
+
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                                    showSuccessToast = false
+                                }
+                            }
+                        }
+                    }
                 }) {
-                    Image(systemName: "person.badge.plus")
-                        .foregroundColor(.blue)
-                        .padding(8)
-                        .background(Color.blue.opacity(0.1))
-                        .clipShape(Circle())
+                    HStack(spacing: 6) {
+                        Image(systemName: "person.badge.plus")
+                        Text("Add")
+                            .font(.subheadline.bold())
+                    }
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
+                    .background(Color.green)
+                    .cornerRadius(20)
                 }
             } else {
                 // Invite button

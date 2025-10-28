@@ -10,6 +10,7 @@ struct RemoteProfileResponse {
         let displayName: String
         let username: String?
         let bio: String?
+        let phoneNumber: String?
         let photoURL: URL?
         let joinDate: Date?
         let primaryLocation: (latitude: Double, longitude: Double)?
@@ -57,6 +58,7 @@ struct RemoteProfileResponse {
         let displayName = profileDict["displayName"] as? String ?? "Friend"
         let username = profileDict["username"] as? String
         let bio = profileDict["bio"] as? String
+        let phoneNumber = profileDict["phoneNumber"] as? String
         let photoURL = (profileDict["photoURL"] as? String).flatMap(URL.init(string:))
 
         let joinDate: Date?
@@ -88,6 +90,7 @@ struct RemoteProfileResponse {
             displayName: displayName,
             username: username,
             bio: bio,
+            phoneNumber: phoneNumber,
             photoURL: photoURL,
             joinDate: joinDate,
             primaryLocation: primaryLocation,
@@ -261,6 +264,7 @@ struct MockProfileBackend: ProfileBackend {
                 "displayName": profile.displayName,
                 "username": profile.username,
                 "bio": profile.bio,
+                "phoneNumber": profile.phoneNumber as Any,
                 "photoURL": profile.photoURL?.absoluteString as Any,
                 "joinDate": ISO8601DateFormatter().string(from: profile.joinDate),
                 "primaryLocation": profile.primaryLocation.map { ["lat": $0.coordinate.latitude, "lng": $0.coordinate.longitude] } as Any,

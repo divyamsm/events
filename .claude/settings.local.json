@@ -37,7 +37,19 @@
       "Bash(xcrun simctl install:*)",
       "Bash(xcrun simctl launch:*)",
       "Bash(ruby:*)",
-      "Bash(\"https://firestore.googleapis.com/v1/projects/stepout-3db1a/databases/(default)/collectionGroups/chats/indexes\" )"
+      "Bash(\"https://firestore.googleapis.com/v1/projects/stepout-3db1a/databases/(default)/collectionGroups/chats/indexes\" )",
+      "Bash(plutil -lint StepOut.xcodeproj/project.pbxproj)",
+      "Bash(killall:*)",
+      "Bash(npx firebase deploy:*)",
+      "Bash(npm install:*)",
+      "Read(//usr/local/**)",
+      "Bash(sudo npm install:*)",
+      "Read(//Users/bharath/**)",
+      "Bash(echo:*)",
+      "Bash(while read dir)",
+      "Bash(do [ -f \"$dir/firebase\" ])",
+      "Bash(break)",
+      "Bash(done)"
     ],
     "deny": [],
     "ask": []

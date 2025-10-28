@@ -8,6 +8,7 @@ struct EmailAuthView: View {
     @State private var confirmPassword = ""
     @State private var displayName = ""
     @State private var username = ""
+    @State private var phoneNumber = ""
     @State private var isSignUp = false
     @State private var isLoading = false
     @State private var errorMessage: String?
@@ -239,6 +240,16 @@ struct EmailAuthView: View {
                 onCheck: checkUsernameAvailability
             )
 
+            // Phone Number Field
+            FormField(
+                title: "Phone Number",
+                placeholder: "+12137065381",
+                text: $phoneNumber,
+                validation: phoneValidation
+            )
+            .keyboardType(.phonePad)
+            .textInputAutocapitalization(.never)
+
             // Password Field
             PasswordFormField(
                 title: "Password",
@@ -277,6 +288,16 @@ struct EmailAuthView: View {
             return .idle
         }
         return displayName.count >= 2 ? .valid : .invalid("Name must be at least 2 characters")
+    }
+
+    private var phoneValidation: ValidationResult {
+        if phoneNumber.isEmpty {
+            return .idle
+        }
+        // E.164 format: +[country code][number]
+        let phoneRegex = "^\\+[1-9]\\d{1,14}$"
+        let predicate = NSPredicate(format: "SELF MATCHES %@", phoneRegex)
+        return predicate.evaluate(with: phoneNumber) ? .valid : .invalid("Use format: +12137065381")
     }
 
     private var passwordValidation: ValidationResult {
@@ -494,7 +515,7 @@ struct EmailAuthView: View {
             let batch = db.batch()
 
             // Create user profile
-            batch.setData([
+            var profileData: [String: Any] = [
                 "email": user.email ?? "",
                 "displayName": displayName,
                 "username": username.lowercased(),
@@ -502,7 +523,14 @@ struct EmailAuthView: View {
                 "emailVerified": true,
                 "createdAt": FieldValue.serverTimestamp(),
                 "updatedAt": FieldValue.serverTimestamp()
-            ], forDocument: userRef)
+            ]
+
+            // Add phone number if provided
+            if !phoneNumber.isEmpty {
+                profileData["phoneNumber"] = phoneNumber
+            }
+
+            batch.setData(profileData, forDocument: userRef)
 
             // Reserve username
             batch.setData([
@@ -524,6 +552,7 @@ struct EmailAuthView: View {
         confirmPassword = ""
         displayName = ""
         username = ""
+        phoneNumber = ""
         usernameAvailable = nil
     }
 
