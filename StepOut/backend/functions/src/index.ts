@@ -865,11 +865,16 @@ export const sendFriendRequest = onCall(async (request) => {
 
     await inviteRef.set(inviteDoc);
 
-    console.log("[Function] sendFriendRequest created", { inviteId: inviteRef.id });
+    console.log("[Function] sendFriendRequest created", { inviteId: inviteRef.id, from: authUid, to: payload.recipientUserId });
+
+    // TODO: Send push notification to recipient user
+    // This would require FCM token stored in user document
+    // await sendPushNotification(payload.recipientUserId, "New Friend Request", `${senderName} wants to be friends`);
 
     return {
       inviteId: inviteRef.id,
-      status: "pending"
+      status: "pending",
+      message: "Friend request sent successfully"
     };
   } catch (error) {
     console.error("[Function] sendFriendRequest error", error);

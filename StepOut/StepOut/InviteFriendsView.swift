@@ -1,5 +1,6 @@
 import SwiftUI
 import Contacts
+import FirebaseAuth
 
 struct InviteFriendsView: View {
     @StateObject private var contactsManager = ContactsManager()
@@ -48,6 +49,11 @@ struct InviteFriendsView: View {
                 print("[Contacts] 🔵 InviteFriendsView appeared")
                 contactsManager.checkPermission()
 
+                // Start listening to outgoing requests
+                if let currentUserId = Auth.auth().currentUser?.uid {
+                    contactsManager.startListeningToOutgoingRequests(currentUserId: currentUserId)
+                }
+
                 // If permission already granted, fetch contacts
                 if contactsManager.permissionStatus == .authorized && contactsManager.contacts.isEmpty {
                     print("[Contacts] 🔵 Permission already granted, fetching contacts...")
@@ -56,20 +62,33 @@ struct InviteFriendsView: View {
                     }
                 }
             }
+            .onDisappear {
+                contactsManager.stopListeningToOutgoingRequests()
+            }
             .overlay(alignment: .top) {
                 if showSuccessToast {
                     VStack {
-                        Text(successMessage)
-                            .font(.subheadline)
-                            .foregroundColor(.white)
-                            .padding()
-                            .background(Color.green.opacity(0.95))
-                            .cornerRadius(10)
-                            .shadow(radius: 10)
-                            .transition(.move(edge: .top).combined(with: .opacity))
-                            .padding(.top, 60)
+                        HStack(spacing: 12) {
+                            Image(systemName: successMessage.contains("Failed") || successMessage.contains("error") ? "xmark.circle.fill" : "checkmark.circle.fill")
+                                .font(.title3)
+                            Text(successMessage)
+                                .font(.subheadline.weight(.medium))
+                            Spacer()
+                        }
+                        .foregroundColor(.white)
+                        .padding()
+                        .background(
+                            successMessage.contains("Failed") || successMessage.contains("error") ?
+                            LinearGradient(colors: [Color.red.opacity(0.95), Color.red.opacity(0.85)], startPoint: .leading, endPoint: .trailing) :
+                            LinearGradient(colors: [Color.green.opacity(0.95), Color.green.opacity(0.85)], startPoint: .leading, endPoint: .trailing)
+                        )
+                        .cornerRadius(12)
+                        .shadow(color: .black.opacity(0.2), radius: 10, x: 0, y: 5)
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                        .padding(.horizontal)
+                        .padding(.top, 60)
                     }
-                    .animation(.spring(), value: showSuccessToast)
+                    .animation(.spring(response: 0.5, dampingFraction: 0.7), value: showSuccessToast)
                 }
             }
         }
@@ -196,9 +215,18 @@ struct InviteFriendsView: View {
 
 struct ContactRow: View {
     let appContact: AppContact
-    let contactsManager: ContactsManager
+    @ObservedObject var contactsManager: ContactsManager
     @Binding var successMessage: String
     @Binding var showSuccessToast: Bool
+
+    @State private var requestStatus: FriendRequestStatus = .none
+    @State private var isProcessing = false
+
+    enum FriendRequestStatus {
+        case none       // No request sent
+        case pending    // Request sent, waiting
+        case failed     // Request failed
+    }
 
     var body: some View {
         HStack(spacing: 12) {
@@ -251,49 +279,83 @@ struct ContactRow: View {
 
             // Action Button
             if appContact.isAppUser {
-                // Add Friend button
-                Button(action: {
-                    guard let userId = appContact.userId else { return }
-                    Task {
-                        do {
-                            try await contactsManager.sendFriendRequest(to: userId)
-                            print("[Contacts] ✅ Friend request sent to \(fullName)")
+                if isProcessing {
+                    ProgressView()
+                        .frame(width: 80)
+                } else {
+                    let isPending = contactsManager.isPending(userId: appContact.userId ?? "")
 
-                            // Show success toast
-                            await MainActor.run {
-                                successMessage = "Friend request sent to \(fullName)"
-                                showSuccessToast = true
+                    Button(action: {
+                        guard let userId = appContact.userId else { return }
+                        guard !isPending && requestStatus == .none else { return }
 
-                                // Hide after 2 seconds
-                                DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-                                    showSuccessToast = false
+                        isProcessing = true
+                        Task {
+                            do {
+                                try await contactsManager.sendFriendRequest(to: userId)
+                                print("[Contacts] ✅ Friend request sent to \(fullName)")
+
+                                await MainActor.run {
+                                    isProcessing = false
+                                    requestStatus = .pending
                                 }
-                            }
-                        } catch {
-                            print("[Contacts] ❌ Failed to send friend request: \(error.localizedDescription)")
+                            } catch {
+                                print("[Contacts] ❌ Failed to send friend request: \(error.localizedDescription)")
 
-                            // Show error toast
-                            await MainActor.run {
-                                successMessage = "Failed to send request"
-                                showSuccessToast = true
+                                await MainActor.run {
+                                    isProcessing = false
+                                    requestStatus = .failed
 
-                                DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-                                    showSuccessToast = false
+                                    // Show error toast
+                                    successMessage = "Failed to send request"
+                                    showSuccessToast = true
+                                    DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                                        showSuccessToast = false
+                                        requestStatus = .none // Allow retry
+                                    }
                                 }
                             }
                         }
+                    }) {
+                        Group {
+                            if isPending || requestStatus == .pending {
+                                HStack(spacing: 6) {
+                                    Image(systemName: "clock.fill")
+                                        .font(.caption)
+                                    Text("Pending")
+                                        .font(.subheadline.bold())
+                                }
+                                .foregroundColor(.secondary)
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 8)
+                                .background(Color.gray.opacity(0.15))
+                                .cornerRadius(20)
+                            } else if requestStatus == .failed {
+                                HStack(spacing: 6) {
+                                    Image(systemName: "arrow.clockwise")
+                                    Text("Retry")
+                                        .font(.subheadline.bold())
+                                }
+                                .foregroundColor(.white)
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 8)
+                                .background(Color.orange)
+                                .cornerRadius(20)
+                            } else {
+                                HStack(spacing: 6) {
+                                    Image(systemName: "person.badge.plus")
+                                    Text("Add")
+                                        .font(.subheadline.bold())
+                                }
+                                .foregroundColor(.white)
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 8)
+                                .background(Color.green)
+                                .cornerRadius(20)
+                            }
+                        }
                     }
-                }) {
-                    HStack(spacing: 6) {
-                        Image(systemName: "person.badge.plus")
-                        Text("Add")
-                            .font(.subheadline.bold())
-                    }
-                    .foregroundColor(.white)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 8)
-                    .background(Color.green)
-                    .cornerRadius(20)
+                    .disabled(isPending || requestStatus == .pending)
                 }
             } else {
                 // Invite button

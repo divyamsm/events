@@ -33,42 +33,45 @@ struct UnifiedFriendsView: View {
         NavigationStack {
             VStack(spacing: 0) {
                 // Custom Tab Picker
-                Picker("", selection: $selectedTab) {
-                    HStack {
-                        Text("Requests")
-                        if viewModel.incomingRequestsCount > 0 {
-                            Text("\(viewModel.incomingRequestsCount)")
+                GeometryReader { geometry in
+                    ZStack(alignment: .topLeading) {
+                        Picker("", selection: $selectedTab) {
+                            Text("Requests").tag(0)
+                            Text("Friends").tag(1)
+                            Text("Find Friends").tag(2)
+                        }
+                        .pickerStyle(.segmented)
+                        .padding()
+
+                        // Badge overlay on Requests tab
+                        let totalRequests = viewModel.incomingRequestsCount + viewModel.outgoingRequestsCount
+                        if totalRequests > 0 {
+                            Text("\(totalRequests)")
                                 .font(.caption2.bold())
                                 .foregroundColor(.white)
                                 .padding(.horizontal, 6)
                                 .padding(.vertical, 2)
                                 .background(Color.red)
                                 .clipShape(Capsule())
+                                .offset(x: geometry.size.width / 6 + 45, y: 8)
                         }
                     }
-                    .tag(0)
-
-                    Text("Friends").tag(1)
-                    Text("Find Friends").tag(2)
                 }
-                .pickerStyle(.segmented)
-                .padding()
+                .frame(height: 60)
 
                 // Content based on selected tab
-                TabView(selection: $selectedTab) {
-                    // Tab 0: Friend Requests
-                    requestsTab
-                        .tag(0)
-
-                    // Tab 1: Friends List
-                    friendsTab
-                        .tag(1)
-
-                    // Tab 2: Find Friends (from contacts)
-                    findFriendsTab
-                        .tag(2)
+                Group {
+                    switch selectedTab {
+                    case 0:
+                        requestsTab
+                    case 1:
+                        friendsTab
+                    case 2:
+                        findFriendsTab
+                    default:
+                        requestsTab
+                    }
                 }
-                .tabViewStyle(.page(indexDisplayMode: .never))
             }
             .navigationTitle("Friends")
             .navigationBarTitleDisplayMode(.inline)
@@ -82,6 +85,7 @@ struct UnifiedFriendsView: View {
             .onAppear {
                 viewModel.startListening(userId: userId)
                 contactsManager.checkPermission()
+                contactsManager.startListeningToOutgoingRequests(currentUserId: userId)
 
                 // Auto-fetch if permission already granted
                 if contactsManager.permissionStatus == .authorized && contactsManager.contacts.isEmpty {
@@ -93,21 +97,32 @@ struct UnifiedFriendsView: View {
             }
             .onDisappear {
                 viewModel.stopListening()
+                contactsManager.stopListeningToOutgoingRequests()
             }
             .overlay(alignment: .top) {
                 if showSuccessToast {
                     VStack {
-                        Text(successMessage)
-                            .font(.subheadline)
-                            .foregroundColor(.white)
-                            .padding()
-                            .background(Color.green.opacity(0.95))
-                            .cornerRadius(10)
-                            .shadow(radius: 10)
-                            .transition(.move(edge: .top).combined(with: .opacity))
-                            .padding(.top, 60)
+                        HStack(spacing: 12) {
+                            Image(systemName: successMessage.contains("Failed") || successMessage.contains("error") ? "xmark.circle.fill" : "checkmark.circle.fill")
+                                .font(.title3)
+                            Text(successMessage)
+                                .font(.subheadline.weight(.medium))
+                            Spacer()
+                        }
+                        .foregroundColor(.white)
+                        .padding()
+                        .background(
+                            successMessage.contains("Failed") || successMessage.contains("error") ?
+                            LinearGradient(colors: [Color.red.opacity(0.95), Color.red.opacity(0.85)], startPoint: .leading, endPoint: .trailing) :
+                            LinearGradient(colors: [Color.green.opacity(0.95), Color.green.opacity(0.85)], startPoint: .leading, endPoint: .trailing)
+                        )
+                        .cornerRadius(12)
+                        .shadow(color: .black.opacity(0.2), radius: 10, x: 0, y: 5)
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                        .padding(.horizontal)
+                        .padding(.top, 60)
                     }
-                    .animation(.spring(), value: showSuccessToast)
+                    .animation(.spring(response: 0.5, dampingFraction: 0.7), value: showSuccessToast)
                 }
             }
         }
@@ -273,7 +288,12 @@ struct UnifiedFriendsView: View {
 
     private var contactsList: some View {
         List {
-            let appUsers = contactsManager.contacts.filter { $0.isAppUser }
+            let filteredContacts = searchText.isEmpty ? contactsManager.contacts : contactsManager.contacts.filter { contact in
+                let fullName = "\(contact.contact.givenName) \(contact.contact.familyName)".lowercased()
+                return fullName.contains(searchText.lowercased())
+            }
+
+            let appUsers = filteredContacts.filter { $0.isAppUser }
             if !appUsers.isEmpty {
                 Section {
                     ForEach(appUsers) { appContact in
@@ -293,7 +313,7 @@ struct UnifiedFriendsView: View {
                 }
             }
 
-            let nonAppUsers = contactsManager.contacts.filter { !$0.isAppUser }
+            let nonAppUsers = filteredContacts.filter { !$0.isAppUser }
             if !nonAppUsers.isEmpty {
                 Section {
                     ForEach(nonAppUsers) { appContact in
@@ -313,6 +333,7 @@ struct UnifiedFriendsView: View {
             }
         }
         .listStyle(.insetGrouped)
+        .searchable(text: $searchText, prompt: "Search contacts")
         .onAppear {
             if contactsManager.permissionStatus == .authorized && contactsManager.contacts.isEmpty {
                 Task {
@@ -326,9 +347,18 @@ struct UnifiedFriendsView: View {
 // MARK: - Contact Row for Unified View
 struct ContactRowUnified: View {
     let appContact: AppContact
-    let contactsManager: ContactsManager
+    @ObservedObject var contactsManager: ContactsManager
     @Binding var successMessage: String
     @Binding var showSuccessToast: Bool
+
+    @State private var requestStatus: FriendRequestStatus = .none
+    @State private var isProcessing = false
+
+    enum FriendRequestStatus {
+        case none       // No request sent
+        case pending    // Request sent, waiting
+        case failed     // Request failed
+    }
 
     private var fullName: String {
         "\(appContact.contact.givenName) \(appContact.contact.familyName)".trimmingCharacters(in: .whitespaces)
@@ -395,39 +425,79 @@ struct ContactRowUnified: View {
 
             // Action Button
             if appContact.isAppUser {
-                Button(action: {
-                    guard let userId = appContact.userId else { return }
-                    Task {
-                        do {
-                            try await contactsManager.sendFriendRequest(to: userId)
-                            await MainActor.run {
-                                successMessage = "Friend request sent to \(fullName)"
-                                showSuccessToast = true
-                                DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-                                    showSuccessToast = false
+                if isProcessing {
+                    ProgressView()
+                        .frame(width: 80)
+                } else {
+                    let isPending = contactsManager.isPending(userId: appContact.userId ?? "")
+
+                    Button(action: {
+                        guard let userId = appContact.userId else { return }
+                        guard !isPending && requestStatus == .none else { return }
+
+                        isProcessing = true
+                        Task {
+                            do {
+                                try await contactsManager.sendFriendRequest(to: userId)
+                                await MainActor.run {
+                                    isProcessing = false
+                                    requestStatus = .pending
                                 }
-                            }
-                        } catch {
-                            await MainActor.run {
-                                successMessage = "Failed to send request"
-                                showSuccessToast = true
-                                DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-                                    showSuccessToast = false
+                            } catch {
+                                await MainActor.run {
+                                    isProcessing = false
+                                    requestStatus = .failed
+
+                                    // Show error toast
+                                    successMessage = "Failed to send request"
+                                    showSuccessToast = true
+                                    DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                                        showSuccessToast = false
+                                        requestStatus = .none // Allow retry
+                                    }
                                 }
                             }
                         }
+                    }) {
+                        Group {
+                            if isPending || requestStatus == .pending {
+                                HStack(spacing: 6) {
+                                    Image(systemName: "clock.fill")
+                                        .font(.caption)
+                                    Text("Pending")
+                                        .font(.subheadline.bold())
+                                }
+                                .foregroundColor(.secondary)
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 8)
+                                .background(Color.gray.opacity(0.15))
+                                .cornerRadius(20)
+                            } else if requestStatus == .failed {
+                                HStack(spacing: 6) {
+                                    Image(systemName: "arrow.clockwise")
+                                    Text("Retry")
+                                        .font(.subheadline.bold())
+                                }
+                                .foregroundColor(.white)
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 8)
+                                .background(Color.orange)
+                                .cornerRadius(20)
+                            } else {
+                                HStack(spacing: 6) {
+                                    Image(systemName: "person.badge.plus")
+                                    Text("Add")
+                                        .font(.subheadline.bold())
+                                }
+                                .foregroundColor(.white)
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 8)
+                                .background(Color.green)
+                                .cornerRadius(20)
+                            }
+                        }
                     }
-                }) {
-                    HStack(spacing: 6) {
-                        Image(systemName: "person.badge.plus")
-                        Text("Add")
-                            .font(.subheadline.bold())
-                    }
-                    .foregroundColor(.white)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 8)
-                    .background(Color.green)
-                    .cornerRadius(20)
+                    .disabled(isPending || requestStatus == .pending)
                 }
             } else {
                 Button(action: {
@@ -459,10 +529,12 @@ class UnifiedFriendsViewModel: ObservableObject {
     @Published var outgoingRequests: [FriendRequest] = []
     @Published var friends: [SimpleFriend] = []
     @Published var incomingRequestsCount: Int = 0
+    @Published var outgoingRequestsCount: Int = 0
 
     private let db = Firestore.firestore()
     private let functions = Functions.functions()
-    private var listener: ListenerRegistration?
+    private var incomingListener: ListenerRegistration?
+    private var outgoingListener: ListenerRegistration?
 
     struct SimpleFriend: Identifiable {
         let id: String
@@ -470,14 +542,14 @@ class UnifiedFriendsViewModel: ObservableObject {
     }
 
     func startListening(userId: String) {
-        // Listen to incoming requests
-        listener = db.collection("invites")
+        // Listen to incoming requests (real-time)
+        incomingListener = db.collection("invites")
             .whereField("recipientUserId", isEqualTo: userId)
             .whereField("status", isEqualTo: "pending")
             .addSnapshotListener { [weak self] snapshot, error in
                 guard let self = self else { return }
                 if let error = error {
-                    print("[UnifiedFriends] Error: \(error)")
+                    print("[UnifiedFriends] Error listening to incoming: \(error)")
                     return
                 }
                 guard let documents = snapshot?.documents else { return }
@@ -489,15 +561,34 @@ class UnifiedFriendsViewModel: ObservableObject {
                 }
             }
 
-        // Load outgoing requests and friends
+        // Listen to outgoing requests (real-time)
+        outgoingListener = db.collection("invites")
+            .whereField("senderId", isEqualTo: userId)
+            .whereField("status", isEqualTo: "pending")
+            .addSnapshotListener { [weak self] snapshot, error in
+                guard let self = self else { return }
+                if let error = error {
+                    print("[UnifiedFriends] Error listening to outgoing: \(error)")
+                    return
+                }
+                guard let documents = snapshot?.documents else { return }
+                Task {
+                    await self.loadOutgoingRequests(documents)
+                    await MainActor.run {
+                        self.outgoingRequestsCount = documents.count
+                    }
+                }
+            }
+
+        // Load friends (one-time)
         Task {
-            await loadOutgoingRequests(userId: userId)
             await loadFriends(userId: userId)
         }
     }
 
     func stopListening() {
-        listener?.remove()
+        incomingListener?.remove()
+        outgoingListener?.remove()
     }
 
     private func loadIncomingRequests(_ documents: [QueryDocumentSnapshot]) async {
@@ -527,17 +618,12 @@ class UnifiedFriendsViewModel: ObservableObject {
         }
     }
 
-    private func loadOutgoingRequests(userId: String) async {
-        do {
-            let snapshot = try await db.collection("invites")
-                .whereField("senderId", isEqualTo: userId)
-                .whereField("status", isEqualTo: "pending")
-                .getDocuments()
-
-            var requests: [FriendRequest] = []
-            for doc in snapshot.documents {
-                let data = doc.data()
-                guard let recipientId = data["recipientUserId"] as? String else { continue }
+    private func loadOutgoingRequests(_ documents: [QueryDocumentSnapshot]) async {
+        var requests: [FriendRequest] = []
+        for doc in documents {
+            let data = doc.data()
+            guard let recipientId = data["recipientUserId"] as? String else { continue }
+            do {
                 let userDoc = try await db.collection("users").document(recipientId).getDocument()
                 let userData = userDoc.data()
                 let recipientName = userData?["displayName"] as? String ?? "Unknown User"
@@ -550,13 +636,14 @@ class UnifiedFriendsViewModel: ObservableObject {
                     direction: .outgoing
                 )
                 requests.append(request)
+            } catch {
+                print("[UnifiedFriends] Error fetching recipient: \(error)")
             }
-            await MainActor.run {
-                self.outgoingRequests = requests
-            }
-        } catch {
-            print("[UnifiedFriends] Error loading outgoing: \(error)")
         }
+        await MainActor.run {
+            self.outgoingRequests = requests
+        }
+        print("[UnifiedFriends] ✅ Loaded \(requests.count) outgoing requests")
     }
 
     private func loadFriends(userId: String) async {
