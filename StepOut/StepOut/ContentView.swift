@@ -120,6 +120,11 @@ struct ContentView: View {
     }
 }
 
+enum ViewMode {
+    case cards
+    case map
+}
+
 @MainActor
 private struct MainAppContentView: View {
     @ObservedObject var viewModel: EventFeedViewModel
@@ -134,6 +139,7 @@ private struct MainAppContentView: View {
     @Binding var alertContext: AlertContext?
 
     @State private var selectedMainTab: MainTab = .home
+    @State private var viewMode: ViewMode = .cards
 
     enum MainTab {
         case home
@@ -162,11 +168,14 @@ private struct MainAppContentView: View {
                         // Modern header
                         ModernHomeHeader(
                             selectedTab: $selectedFeedTab,
+                            viewMode: $viewMode,
                             onCreateTapped: { showingCreateEvent = true }
                         )
 
                         Group {
-                            if selectedFeedTab == .upcoming {
+                            if viewMode == .map {
+                                eventsMapView
+                            } else if selectedFeedTab == .upcoming {
                                 upcomingFeed
                             } else {
                                 pastFeed
@@ -491,6 +500,24 @@ private struct MainAppContentView: View {
                 .padding(.bottom, 24)
             }
         }
+    }
+
+    @ViewBuilder
+    private var eventsMapView: some View {
+        EventsMapView(
+            events: viewModel.feedEvents,
+            onEventTapped: { feedEvent in
+                // Handle event tap - could show detail sheet
+                showAttendanceSheet = feedEvent
+            },
+            onRSVPTapped: { feedEvent in
+                if feedEvent.isAttending {
+                    viewModel.updateAttendance(for: feedEvent, going: false, arrivalTime: nil)
+                } else {
+                    pendingRSVP = feedEvent
+                }
+            }
+        )
     }
 }
 
@@ -2283,6 +2310,7 @@ private struct EmailVerificationBanner: View {
 // MARK: - Modern Home Header
 struct ModernHomeHeader: View {
     @Binding var selectedTab: ContentView.FeedTab
+    @Binding var viewMode: ViewMode
     let onCreateTapped: () -> Void
 
     var body: some View {
@@ -2305,6 +2333,29 @@ struct ModernHomeHeader: View {
                 }
 
                 Spacer()
+
+                // View mode toggle
+                HStack(spacing: 8) {
+                    Button(action: { withAnimation(.spring(response: 0.3)) { viewMode = .cards } }) {
+                        Image(systemName: viewMode == .cards ? "square.stack.3d.up.fill" : "square.stack.3d.up")
+                            .font(.title3)
+                            .foregroundStyle(
+                                viewMode == .cards ?
+                                    LinearGradient(colors: [.blue, .purple], startPoint: .topLeading, endPoint: .bottomTrailing) :
+                                    LinearGradient(colors: [.secondary, .secondary], startPoint: .topLeading, endPoint: .bottomTrailing)
+                            )
+                    }
+
+                    Button(action: { withAnimation(.spring(response: 0.3)) { viewMode = .map } }) {
+                        Image(systemName: viewMode == .map ? "map.fill" : "map")
+                            .font(.title3)
+                            .foregroundStyle(
+                                viewMode == .map ?
+                                    LinearGradient(colors: [.blue, .purple], startPoint: .topLeading, endPoint: .bottomTrailing) :
+                                    LinearGradient(colors: [.secondary, .secondary], startPoint: .topLeading, endPoint: .bottomTrailing)
+                            )
+                    }
+                }
 
                 // Create button with gradient
                 Button(action: onCreateTapped) {
@@ -2598,6 +2649,303 @@ private class LocationSearchCompleter: NSObject, ObservableObject, MKLocalSearch
             isSearching = false
             print("[LocationSearchCompleter] Error: \(error.localizedDescription)")
         }
+    }
+}
+
+// MARK: - Events Map View
+struct EventsMapView: View {
+    let events: [EventFeedViewModel.FeedEvent]
+    let onEventTapped: (EventFeedViewModel.FeedEvent) -> Void
+    let onRSVPTapped: (EventFeedViewModel.FeedEvent) -> Void
+
+    @State private var region = MKCoordinateRegion(
+        center: CLLocationCoordinate2D(latitude: 37.7749, longitude: -122.4194), // Default to SF
+        span: MKCoordinateSpan(latitudeDelta: 0.1, longitudeDelta: 0.1)
+    )
+    @State private var selectedEventId: UUID?
+    @StateObject private var locationManager = LocationManager()
+
+    var body: some View {
+        ZStack(alignment: .bottom) {
+            // Map with custom styling
+            Map(coordinateRegion: $region, annotationItems: eventsWithCoordinates) { event in
+                MapAnnotation(coordinate: event.event.coordinate ?? CLLocationCoordinate2D()) {
+                    EventMapMarker(
+                        event: event,
+                        isSelected: selectedEventId == event.id,
+                        onTap: {
+                            withAnimation(.spring(response: 0.3)) {
+                                selectedEventId = event.id
+                            }
+                        }
+                    )
+                }
+            }
+            .ignoresSafeArea(edges: .bottom)
+            .onAppear {
+                centerMapOnEvents()
+            }
+
+            // Horizontally scrollable event cards at bottom
+            if !eventsWithCoordinates.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 12) {
+                        ForEach(eventsWithCoordinates) { event in
+                            EventMapCard(
+                                event: event,
+                                isSelected: selectedEventId == event.id,
+                                onTap: {
+                                    withAnimation(.spring(response: 0.3)) {
+                                        selectedEventId = event.id
+                                        // Center map on selected event
+                                        if let coordinate = event.event.coordinate {
+                                            region.center = coordinate
+                                        }
+                                    }
+                                },
+                                onRSVP: {
+                                    onRSVPTapped(event)
+                                }
+                            )
+                            .frame(width: 320)
+                        }
+                    }
+                    .padding(.horizontal, 16)
+                }
+                .padding(.bottom, 16)
+            }
+
+            // Recenter button
+            VStack {
+                HStack {
+                    Spacer()
+                    Button(action: centerMapOnEvents) {
+                        ZStack {
+                            Circle()
+                                .fill(Color(.systemBackground))
+                                .frame(width: 44, height: 44)
+                                .shadow(color: .black.opacity(0.15), radius: 8, y: 2)
+
+                            Image(systemName: "location.fill")
+                                .font(.system(size: 18))
+                                .foregroundStyle(
+                                    LinearGradient(
+                                        colors: [.blue, .purple],
+                                        startPoint: .topLeading,
+                                        endPoint: .bottomTrailing
+                                    )
+                                )
+                        }
+                    }
+                    .padding(.trailing, 16)
+                    .padding(.top, 16)
+                }
+                Spacer()
+            }
+        }
+    }
+
+    private var eventsWithCoordinates: [EventFeedViewModel.FeedEvent] {
+        events.filter { $0.event.coordinate != nil }
+    }
+
+    private func centerMapOnEvents() {
+        guard !eventsWithCoordinates.isEmpty else {
+            // Use user's location if available
+            if let userLocation = locationManager.location {
+                region = MKCoordinateRegion(
+                    center: userLocation.coordinate,
+                    span: MKCoordinateSpan(latitudeDelta: 0.05, longitudeDelta: 0.05)
+                )
+            }
+            return
+        }
+
+        let coordinates = eventsWithCoordinates.compactMap { $0.event.coordinate }
+
+        let minLat = coordinates.map { $0.latitude }.min() ?? 0
+        let maxLat = coordinates.map { $0.latitude }.max() ?? 0
+        let minLon = coordinates.map { $0.longitude }.min() ?? 0
+        let maxLon = coordinates.map { $0.longitude }.max() ?? 0
+
+        let center = CLLocationCoordinate2D(
+            latitude: (minLat + maxLat) / 2,
+            longitude: (minLon + maxLon) / 2
+        )
+
+        let span = MKCoordinateSpan(
+            latitudeDelta: max((maxLat - minLat) * 1.5, 0.01),
+            longitudeDelta: max((maxLon - minLon) * 1.5, 0.01)
+        )
+
+        withAnimation {
+            region = MKCoordinateRegion(center: center, span: span)
+        }
+    }
+}
+
+// MARK: - Event Map Marker
+struct EventMapMarker: View {
+    let event: EventFeedViewModel.FeedEvent
+    let isSelected: Bool
+    let onTap: () -> Void
+
+    var body: some View {
+        Button(action: onTap) {
+            ZStack {
+                // Outer pulse effect when selected
+                if isSelected {
+                    Circle()
+                        .fill(Color.blue.opacity(0.3))
+                        .frame(width: 60, height: 60)
+                        .scaleEffect(isSelected ? 1.2 : 1.0)
+                        .animation(.easeInOut(duration: 1).repeatForever(autoreverses: true), value: isSelected)
+                }
+
+                // Main marker
+                Circle()
+                    .fill(
+                        LinearGradient(
+                            colors: isSelected ? [.blue, .purple] : [.blue.opacity(0.9), .purple.opacity(0.9)],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+                    .frame(width: isSelected ? 50 : 40, height: isSelected ? 50 : 40)
+                    .overlay(
+                        Circle()
+                            .stroke(Color.white, lineWidth: 3)
+                    )
+                    .shadow(color: .black.opacity(0.3), radius: isSelected ? 12 : 6, y: 4)
+
+                // Icon
+                Image(systemName: "calendar")
+                    .font(.system(size: isSelected ? 20 : 16, weight: .semibold))
+                    .foregroundColor(.white)
+            }
+        }
+        .scaleEffect(isSelected ? 1.1 : 1.0)
+        .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isSelected)
+    }
+}
+
+// MARK: - Event Map Card
+struct EventMapCard: View {
+    let event: EventFeedViewModel.FeedEvent
+    let isSelected: Bool
+    let onTap: () -> Void
+    let onRSVP: () -> Void
+
+    private static let dateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .short
+        return formatter
+    }()
+
+    var body: some View {
+        Button(action: onTap) {
+            VStack(spacing: 0) {
+                // Card content
+                HStack(alignment: .top, spacing: 16) {
+                    // Event image/icon
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 16, style: .continuous)
+                            .fill(
+                                LinearGradient(
+                                    colors: [.blue.opacity(0.2), .purple.opacity(0.2)],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                )
+                            )
+                            .frame(width: 80, height: 80)
+
+                        Image(systemName: "calendar")
+                            .font(.system(size: 32))
+                            .foregroundStyle(
+                                LinearGradient(
+                                    colors: [.blue, .purple],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                )
+                            )
+                    }
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(event.event.title)
+                            .font(.headline.weight(.bold))
+                            .foregroundStyle(.primary)
+                            .lineLimit(2)
+                            .multilineTextAlignment(.leading)
+
+                        Label(event.event.location, systemImage: "mappin.circle.fill")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+
+                        Label(Self.dateFormatter.string(from: event.event.date), systemImage: "clock.fill")
+                            .font(.caption)
+                            .foregroundStyle(.tertiary)
+
+                        // RSVP Button
+                        Button(action: onRSVP) {
+                            HStack(spacing: 6) {
+                                Image(systemName: event.isAttending ? "checkmark.circle.fill" : "plus.circle.fill")
+                                Text(event.isAttending ? "Going" : "Join Event")
+                                    .font(.subheadline.weight(.semibold))
+                            }
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 20)
+                            .padding(.vertical, 10)
+                            .background(
+                                LinearGradient(
+                                    colors: event.isAttending ? [.green, .green.opacity(0.8)] : [.blue, .purple],
+                                    startPoint: .leading,
+                                    endPoint: .trailing
+                                )
+                            )
+                            .cornerRadius(20)
+                        }
+                    }
+                }
+                .padding(16)
+            }
+            .background(
+                RoundedRectangle(cornerRadius: 24, style: .continuous)
+                    .fill(Color(.systemBackground))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 24, style: .continuous)
+                            .stroke(
+                                isSelected ?
+                                    LinearGradient(colors: [.blue, .purple], startPoint: .topLeading, endPoint: .bottomTrailing) :
+                                    LinearGradient(colors: [.clear, .clear], startPoint: .topLeading, endPoint: .bottomTrailing),
+                                lineWidth: 2
+                            )
+                    )
+                    .shadow(color: isSelected ? Color.blue.opacity(0.3) : Color.black.opacity(0.15), radius: isSelected ? 25 : 20, y: 10)
+            )
+            .scaleEffect(isSelected ? 1.05 : 1.0)
+            .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isSelected)
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+// MARK: - Location Manager
+class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
+    private let manager = CLLocationManager()
+    @Published var location: CLLocation?
+
+    override init() {
+        super.init()
+        manager.delegate = self
+        manager.desiredAccuracy = kCLLocationAccuracyBest
+        manager.requestWhenInUseAuthorization()
+        manager.startUpdatingLocation()
+    }
+
+    func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
+        location = locations.first
     }
 }
 

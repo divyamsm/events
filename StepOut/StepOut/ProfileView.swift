@@ -575,44 +575,15 @@ struct ProfileView: View {
             }
         }
         .sheet(isPresented: $showSettings) {
-            NavigationStack {
-                Form {
-                    Section("Appearance") {
-                        Picker("Theme", selection: $appState.selectedTheme) {
-                            ForEach(AppState.AppTheme.allCases) { theme in
-                                Text(theme.title).tag(theme)
-                            }
-                        }
-                        .pickerStyle(.segmented)
-                    }
-
-                    Section("Social") {
-                        NavigationLink(destination: EventPreferencesView(isOnboarding: false, onComplete: nil)) {
-                            Label("Event Preferences", systemImage: "star")
-                        }
-                    }
-
-                    Section("Account") {
-                        Button(action: { showSignOutConfirmation = true }) {
-                            HStack {
-                                Text("Sign Out")
-                                    .foregroundStyle(.red)
-                                Spacer()
-                                Image(systemName: "arrow.right.square")
-                                    .foregroundStyle(.red)
-                            }
-                        }
-                    }
+            ModernSettingsView(
+                appState: appState,
+                showSignOutConfirmation: $showSignOutConfirmation,
+                onDismiss: { showSettings = false },
+                onSignOut: {
+                    authManager?.signOut()
+                    showSettings = false
                 }
-                .navigationTitle("Settings")
-                .navigationBarTitleDisplayMode(.inline)
-                .toolbar {
-                    ToolbarItem(placement: .topBarTrailing) {
-                        Button("Done") { showSettings = false }
-                    }
-                }
-            }
-            .presentationDetents([.medium, .large])
+            )
             .alert("Sign Out", isPresented: $showSignOutConfirmation) {
                 Button("Cancel", role: .cancel) {}
                 Button("Sign Out", role: .destructive) {
@@ -654,12 +625,24 @@ struct ProfileView: View {
     private var content: some View {
         if let profile = viewModel.profile {
             ZStack {
+                // Modern gradient background matching home page
+                LinearGradient(
+                    colors: [
+                        Color.blue.opacity(0.05),
+                        Color.purple.opacity(0.05),
+                        Color(.systemBackground)
+                    ],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+                .ignoresSafeArea()
+
                 ScrollView(.vertical, showsIndicators: false) {
                     VStack(spacing: 24) {
-                        headerSection(profile: profile)
-                        actionRow(profile: profile)
+                        modernHeaderSection(profile: profile)
+                        modernActionRow(profile: profile)
                         calendarSection(profile: profile)
-                        statsStrip(profile: profile)
+                        modernStatsStrip(profile: profile)
                     }
                     .padding(.horizontal, 20)
                     .padding(.top, 20)
@@ -699,6 +682,284 @@ struct ProfileView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
+
+    // MARK: - Modern Sections
+
+    private func modernHeaderSection(profile: UserProfile) -> some View {
+        HStack(alignment: .center, spacing: 16) {
+            VStack(alignment: .leading, spacing: 8) {
+                Text(profile.displayName)
+                    .font(.title.bold())
+                    .lineLimit(1)
+                    .foregroundStyle(
+                        LinearGradient(
+                            colors: [.primary, .primary.opacity(0.8)],
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )
+                    )
+                Text(profile.username)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(
+                        LinearGradient(
+                            colors: [.blue, .purple],
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )
+                    )
+                    .lineLimit(1)
+                if profile.bio != "Tap to add a bio" && profile.bio.isEmpty == false {
+                    Text(profile.bio)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .lineLimit(2)
+                }
+            }
+            .frame(maxHeight: .infinity, alignment: .leading)
+            Spacer()
+            modernAvatarView(for: profile)
+        }
+        .padding(20)
+        .frame(maxWidth: .infinity, minHeight: 108)
+        .background(
+            RoundedRectangle(cornerRadius: 28, style: .continuous)
+                .fill(Color(.secondarySystemBackground))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 28, style: .continuous)
+                        .stroke(
+                            LinearGradient(
+                                colors: [.blue.opacity(0.2), .purple.opacity(0.2)],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            ),
+                            lineWidth: 1
+                        )
+                )
+                .shadow(color: .blue.opacity(0.08), radius: 12, x: 0, y: 4)
+        )
+    }
+
+    private func modernAvatarView(for profile: UserProfile) -> some View {
+        Group {
+            if let url = profile.photoURL {
+                AsyncImage(url: url) { phase in
+                    switch phase {
+                    case .success(let image):
+                        image
+                            .resizable()
+                            .scaledToFill()
+                    case .empty, .failure, _:
+                        modernPlaceholderAvatar(text: initials(for: profile.displayName))
+                    }
+                }
+                .clipShape(Circle())
+            } else {
+                modernPlaceholderAvatar(text: initials(for: profile.displayName))
+            }
+        }
+        .frame(width: 68, height: 68)
+        .overlay(
+            Circle()
+                .stroke(
+                    LinearGradient(
+                        colors: [.blue, .purple],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    ),
+                    lineWidth: 3
+                )
+        )
+        .shadow(color: .blue.opacity(0.3), radius: 8, x: 0, y: 4)
+    }
+
+    private func modernPlaceholderAvatar(text: String) -> some View {
+        Circle()
+            .fill(
+                LinearGradient(
+                    colors: [.blue, .purple],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+            )
+            .overlay(
+                Text(text)
+                    .font(.title2.bold())
+                    .foregroundStyle(.white)
+            )
+    }
+
+    private func modernActionRow(profile: UserProfile) -> some View {
+        HStack(spacing: 12) {
+            Button { showUnifiedFriends.toggle() } label: {
+                ZStack(alignment: .topTrailing) {
+                    modernActionButtonLabel(
+                        systemImage: "person.2.fill",
+                        title: "\(profile.friends.count) Friends"
+                    )
+
+                    // Modern notification badge
+                    if pendingRequestsCount > 0 {
+                        Text("\(pendingRequestsCount)")
+                            .font(.caption2.bold())
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(
+                                LinearGradient(
+                                    colors: [.red, .red.opacity(0.8)],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                )
+                            )
+                            .clipShape(Capsule())
+                            .overlay(
+                                Capsule()
+                                    .stroke(Color(.systemBackground), lineWidth: 2)
+                            )
+                            .offset(x: 8, y: -8)
+                            .shadow(color: .red.opacity(0.4), radius: 4, y: 2)
+                    }
+                }
+            }
+            .buttonStyle(.plain)
+
+            Button { showEditProfile.toggle() } label: {
+                modernActionButtonLabel(
+                    systemImage: "pencil",
+                    title: "Edit Profile"
+                )
+            }
+            .buttonStyle(.plain)
+
+            Spacer()
+        }
+        .frame(height: 44)
+    }
+
+    private func modernActionButtonLabel(systemImage: String, title: String) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: systemImage)
+                .font(.headline)
+                .foregroundStyle(
+                    LinearGradient(
+                        colors: [.blue, .purple],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+            Text(title)
+                .font(.headline.weight(.semibold))
+                .foregroundStyle(.primary)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .background(
+            Capsule()
+                .fill(Color(.secondarySystemBackground))
+                .overlay(
+                    Capsule()
+                        .stroke(
+                            LinearGradient(
+                                colors: [.blue.opacity(0.3), .purple.opacity(0.3)],
+                                startPoint: .leading,
+                                endPoint: .trailing
+                            ),
+                            lineWidth: 1
+                        )
+                )
+                .shadow(color: .blue.opacity(0.1), radius: 6, x: 0, y: 2)
+        )
+    }
+
+    private func modernStatsStrip(profile: UserProfile) -> some View {
+        HStack(spacing: 20) {
+            modernStatTile(
+                icon: "heart.fill",
+                title: "Attended",
+                value: "\(profile.stats.attendedCount)",
+                gradient: [.pink, .red]
+            )
+
+            modernStatTile(
+                icon: "flame.fill",
+                title: "Hosted",
+                value: "\(profile.stats.hostedCount)",
+                gradient: [.orange, .red]
+            )
+
+            modernStatTile(
+                icon: "person.2.wave.2.fill",
+                title: "Invites",
+                value: "\(profile.stats.invitesSent)",
+                gradient: [.blue, .purple]
+            )
+        }
+        .frame(maxWidth: .infinity, minHeight: 100)
+        .padding(.vertical, 20)
+        .padding(.horizontal, 16)
+        .background(
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .fill(Color(.secondarySystemBackground))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 24, style: .continuous)
+                        .stroke(
+                            LinearGradient(
+                                colors: [.blue.opacity(0.15), .purple.opacity(0.15)],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            ),
+                            lineWidth: 1
+                        )
+                )
+                .shadow(color: .blue.opacity(0.08), radius: 12, x: 0, y: 4)
+        )
+    }
+
+    private func modernStatTile(icon: String, title: String, value: String, gradient: [Color]) -> some View {
+        VStack(spacing: 8) {
+            // Icon with gradient background
+            ZStack {
+                Circle()
+                    .fill(
+                        LinearGradient(
+                            colors: gradient.map { $0.opacity(0.2) },
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+                    .frame(width: 44, height: 44)
+
+                Image(systemName: icon)
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(
+                        LinearGradient(
+                            colors: gradient,
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+            }
+            .shadow(color: gradient[0].opacity(0.3), radius: 6, y: 2)
+
+            Text(value)
+                .font(.title2.bold())
+                .foregroundStyle(
+                    LinearGradient(
+                        colors: [.primary, .primary.opacity(0.8)],
+                        startPoint: .leading,
+                        endPoint: .trailing
+                    )
+                )
+
+            Text(title)
+                .font(.caption.weight(.medium))
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    // MARK: - Legacy Sections (kept for compatibility)
 
     private func headerSection(profile: UserProfile) -> some View {
         HStack(alignment: .center, spacing: 16) {
@@ -1777,6 +2038,243 @@ private struct EventCard: View {
             Image(systemName: "calendar")
                 .font(.title2)
                 .foregroundStyle(.white.opacity(0.8))
+        )
+    }
+}
+
+// MARK: - Modern Settings View
+private struct ModernSettingsView: View {
+    @ObservedObject var appState: AppState
+    @Binding var showSignOutConfirmation: Bool
+    let onDismiss: () -> Void
+    let onSignOut: () -> Void
+
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                // Modern gradient background
+                LinearGradient(
+                    colors: [
+                        Color.blue.opacity(0.05),
+                        Color.purple.opacity(0.05),
+                        Color(.systemBackground)
+                    ],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+                .ignoresSafeArea()
+
+                ScrollView {
+                    VStack(spacing: 24) {
+                        // Header
+                        VStack(spacing: 8) {
+                            ZStack {
+                                Circle()
+                                    .fill(
+                                        LinearGradient(
+                                            colors: [.blue.opacity(0.2), .purple.opacity(0.2)],
+                                            startPoint: .topLeading,
+                                            endPoint: .bottomTrailing
+                                        )
+                                    )
+                                    .frame(width: 80, height: 80)
+
+                                Image(systemName: "gearshape.fill")
+                                    .font(.system(size: 36))
+                                    .foregroundStyle(
+                                        LinearGradient(
+                                            colors: [.blue, .purple],
+                                            startPoint: .topLeading,
+                                            endPoint: .bottomTrailing
+                                        )
+                                    )
+                            }
+                            .shadow(color: .blue.opacity(0.2), radius: 8, y: 4)
+
+                            Text("Settings")
+                                .font(.title.bold())
+                                .foregroundStyle(
+                                    LinearGradient(
+                                        colors: [.primary, .primary.opacity(0.8)],
+                                        startPoint: .leading,
+                                        endPoint: .trailing
+                                    )
+                                )
+                        }
+                        .padding(.top, 20)
+
+                        // Appearance Section
+                        ModernSettingsSection(title: "Appearance", icon: "paintbrush.fill", iconGradient: [.blue, .purple]) {
+                            VStack(alignment: .leading, spacing: 12) {
+                                Text("Theme")
+                                    .font(.subheadline.weight(.medium))
+                                    .foregroundStyle(.secondary)
+
+                                Picker("Theme", selection: $appState.selectedTheme) {
+                                    ForEach(AppState.AppTheme.allCases) { theme in
+                                        Text(theme.title).tag(theme)
+                                    }
+                                }
+                                .pickerStyle(.segmented)
+                            }
+                        }
+
+                        // Social Section
+                        ModernSettingsSection(title: "Social", icon: "person.2.fill", iconGradient: [.green, .blue]) {
+                            NavigationLink(destination: EventPreferencesView(isOnboarding: false, onComplete: nil)) {
+                                HStack(spacing: 12) {
+                                    ZStack {
+                                        Circle()
+                                            .fill(
+                                                LinearGradient(
+                                                    colors: [.green.opacity(0.2), .blue.opacity(0.2)],
+                                                    startPoint: .topLeading,
+                                                    endPoint: .bottomTrailing
+                                                )
+                                            )
+                                            .frame(width: 40, height: 40)
+
+                                        Image(systemName: "star.fill")
+                                            .font(.system(size: 16))
+                                            .foregroundStyle(
+                                                LinearGradient(
+                                                    colors: [.green, .blue],
+                                                    startPoint: .topLeading,
+                                                    endPoint: .bottomTrailing
+                                                )
+                                            )
+                                    }
+
+                                    Text("Event Preferences")
+                                        .font(.body.weight(.medium))
+                                        .foregroundStyle(.primary)
+
+                                    Spacer()
+
+                                    Image(systemName: "chevron.right")
+                                        .font(.caption.weight(.semibold))
+                                        .foregroundStyle(.tertiary)
+                                }
+                                .padding(16)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                        .fill(Color(.tertiarySystemBackground))
+                                )
+                            }
+                            .buttonStyle(.plain)
+                        }
+
+                        // Account Section
+                        ModernSettingsSection(title: "Account", icon: "person.crop.circle.fill", iconGradient: [.red, .orange]) {
+                            Button(action: { showSignOutConfirmation = true }) {
+                                HStack(spacing: 12) {
+                                    ZStack {
+                                        Circle()
+                                            .fill(
+                                                LinearGradient(
+                                                    colors: [.red.opacity(0.2), .orange.opacity(0.2)],
+                                                    startPoint: .topLeading,
+                                                    endPoint: .bottomTrailing
+                                                )
+                                            )
+                                            .frame(width: 40, height: 40)
+
+                                        Image(systemName: "arrow.right.square.fill")
+                                            .font(.system(size: 16))
+                                            .foregroundStyle(
+                                                LinearGradient(
+                                                    colors: [.red, .orange],
+                                                    startPoint: .topLeading,
+                                                    endPoint: .bottomTrailing
+                                                )
+                                            )
+                                    }
+
+                                    Text("Sign Out")
+                                        .font(.body.weight(.medium))
+                                        .foregroundStyle(.primary)
+
+                                    Spacer()
+
+                                    Image(systemName: "chevron.right")
+                                        .font(.caption.weight(.semibold))
+                                        .foregroundStyle(.tertiary)
+                                }
+                                .padding(16)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                        .fill(Color(.tertiarySystemBackground))
+                                )
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 40)
+                }
+            }
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button(action: onDismiss) {
+                        ZStack {
+                            Circle()
+                                .fill(Color(.tertiarySystemBackground))
+                                .frame(width: 32, height: 32)
+
+                            Image(systemName: "xmark")
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+private struct ModernSettingsSection<Content: View>: View {
+    let title: String
+    let icon: String
+    let iconGradient: [Color]
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(spacing: 10) {
+                Image(systemName: icon)
+                    .font(.headline)
+                    .foregroundStyle(
+                        LinearGradient(
+                            colors: iconGradient,
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+
+                Text(title)
+                    .font(.headline.weight(.semibold))
+                    .foregroundStyle(.primary)
+            }
+
+            content
+        }
+        .padding(20)
+        .background(
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .fill(Color(.secondarySystemBackground))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 24, style: .continuous)
+                        .stroke(
+                            LinearGradient(
+                                colors: iconGradient.map { $0.opacity(0.2) },
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            ),
+                            lineWidth: 1
+                        )
+                )
+                .shadow(color: iconGradient[0].opacity(0.1), radius: 12, x: 0, y: 4)
         )
     }
 }
