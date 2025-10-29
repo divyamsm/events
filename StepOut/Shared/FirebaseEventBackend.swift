@@ -38,20 +38,19 @@ final class FirebaseEventBackend: EventBackend {
         title: String,
         description: String?,
         startAt: Date,
-        duration: TimeInterval,
+        endAt: Date,
         location: String,
         coordinate: CLLocationCoordinate2D?,
         privacy: Event.Privacy
     ) async throws -> UUID {
         let callable = functions.httpsCallable("createEvent")
-        let endDate = startAt.addingTimeInterval(duration)
 
         var payload: [String: Any] = [
             "ownerId": owner.id.uuidString,
             "title": title,
             "description": description as Any,
             "startAt": ISO8601DateFormatter().string(from: startAt),
-            "endAt": ISO8601DateFormatter().string(from: endDate),
+            "endAt": ISO8601DateFormatter().string(from: endAt),
             "location": location,
             "visibility": privacy == .public ? "public" : "invite-only",
             "maxGuests": NSNull()

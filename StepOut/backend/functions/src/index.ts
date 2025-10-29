@@ -3,6 +3,7 @@ import { DocumentData, DocumentReference, DocumentSnapshot, Timestamp } from "fi
 import { randomUUID } from "crypto";
 import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { CallableRequest } from "firebase-functions/v2/https";
+import { onSchedule } from "firebase-functions/v2/scheduler";
 import * as schema from "./schema";
 import {
   EventCreatePayload,
@@ -1213,18 +1214,34 @@ export const listChats = onCall(async (request) => {
       .limit(50)
       .get();
 
-    const chats = chatsSnap.docs
+    const chats = await Promise.all(chatsSnap.docs
       .filter(doc => {
         const data = doc.data() as schema.ChatDoc;
         // Filter out archived chats
         return !data.archived;
       })
-      .map(doc => {
+      .map(async (doc) => {
         const data = doc.data() as schema.ChatDoc;
+
+        // Fetch event to get endAt timestamp
+        let eventEndAt: string | null = null;
+        try {
+          const eventDoc = await db.collection("events").doc(data.eventId).get();
+          if (eventDoc.exists) {
+            const eventData = eventDoc.data();
+            if (eventData?.endAt) {
+              eventEndAt = eventData.endAt.toDate().toISOString();
+            }
+          }
+        } catch (eventError) {
+          console.warn("[Function] listChats - failed to fetch event", data.eventId, eventError);
+        }
+
         return {
           chatId: data.chatId,
           eventId: data.eventId,
           eventTitle: data.eventTitle,
+          eventEndAt: eventEndAt,
           lastMessageAt: data.lastMessageAt?.toDate().toISOString() ?? null,
           lastMessageText: data.lastMessageText,
           lastMessageSenderName: data.lastMessageSenderName,
@@ -1232,7 +1249,7 @@ export const listChats = onCall(async (request) => {
           participantCount: data.participantIds.length,
           lastMessageTimestamp: data.lastMessageAt?.toMillis() ?? 0
         };
-      });
+      }));
 
     // Sort in memory by lastMessageAt (most recent first)
     chats.sort((a, b) => b.lastMessageTimestamp - a.lastMessageTimestamp);
@@ -1243,5 +1260,56 @@ export const listChats = onCall(async (request) => {
   } catch (error) {
     console.error("[Function] listChats error", error);
     throw new HttpsError("internal", (error as Error).message ?? "Failed to list chats");
+  }
+});
+
+// Scheduled function to archive old chats
+// Runs daily at 2 AM UTC to archive chats from events that ended 7+ days ago
+export const archiveOldChats = onSchedule("every day 02:00", async (event) => {
+  console.log("[Function] archiveOldChats starting");
+
+  try {
+    const now = Timestamp.now();
+    const sevenDaysAgo = Timestamp.fromDate(
+      new Date(now.toMillis() - 7 * 24 * 60 * 60 * 1000)
+    );
+
+    // Find all events that ended 7+ days ago
+    const eventsSnap = await db.collection("events")
+      .where("endAt", "<=", sevenDaysAgo)
+      .get();
+
+    console.log("[Function] archiveOldChats found", eventsSnap.size, "old events");
+
+    let archivedCount = 0;
+    const batch = db.batch();
+
+    for (const eventDoc of eventsSnap.docs) {
+      const eventId = eventDoc.id;
+
+      // Find all chats for this event
+      const chatsSnap = await db.collection("chats")
+        .where("eventId", "==", eventId)
+        .where("archived", "==", false)
+        .get();
+
+      for (const chatDoc of chatsSnap.docs) {
+        batch.update(chatDoc.ref, {
+          archived: true,
+          archivedAt: now
+        });
+        archivedCount++;
+      }
+    }
+
+    if (archivedCount > 0) {
+      await batch.commit();
+      console.log("[Function] archiveOldChats archived", archivedCount, "chats");
+    } else {
+      console.log("[Function] archiveOldChats no chats to archive");
+    }
+  } catch (error) {
+    console.error("[Function] archiveOldChats error", error);
+    throw error;
   }
 });

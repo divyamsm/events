@@ -214,11 +214,12 @@ private struct MainAppContentView: View {
             )
         }
         .sheet(isPresented: $showingCreateEvent) {
-            CreateEventView(friends: viewModel.friendOptions) { title, location, date, coordinate, imageURL, privacy, invitedIDs, imageData in
+            CreateEventView(friends: viewModel.friendOptions) { title, location, date, endDate, coordinate, imageURL, privacy, invitedIDs, imageData in
                 viewModel.createEvent(
                     title: title,
                     location: location,
                     date: date,
+                    endDate: endDate,
                     coordinate: coordinate,
                     imageURL: imageURL,
                     privacy: privacy,
@@ -1386,11 +1387,12 @@ private struct VerticalCarouselFallback: View {
 private struct CreateEventView: View {
     @Environment(\.dismiss) private var dismiss
     let friends: [Friend]
-    let onCreate: (String, String, Date, CLLocationCoordinate2D?, URL, Event.Privacy, [UUID], Data?) -> Void
+    let onCreate: (String, String, Date, Date, CLLocationCoordinate2D?, URL, Event.Privacy, [UUID], Data?) -> Void
 
     @State private var title: String = ""
     @State private var location: String = ""
     @State private var eventDate: Date = Date().addingTimeInterval(60 * 60)
+    @State private var eventEndDate: Date = Date().addingTimeInterval(60 * 60 * 3) // Default 3 hours later
     @State private var selectedPrivacy: Event.Privacy = .public
     @State private var selectedFriendIDs: Set<UUID> = []
     @State private var coordinate: CLLocationCoordinate2D?
@@ -1402,7 +1404,8 @@ private struct CreateEventView: View {
 
     private var isValid: Bool {
         !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
-        !location.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        !location.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+        eventEndDate > eventDate
     }
 
     private var trimmedTitle: String {
@@ -1425,7 +1428,14 @@ private struct CreateEventView: View {
                 Section(header: Text("Details")) {
                     TextField("Event name", text: $title)
                     TextField("Location", text: $location)
-                    DatePicker("When", selection: $eventDate, displayedComponents: [.date, .hourAndMinute])
+                    DatePicker("Start time", selection: $eventDate, displayedComponents: [.date, .hourAndMinute])
+                    DatePicker("End time", selection: $eventEndDate, displayedComponents: [.date, .hourAndMinute])
+
+                    if eventEndDate <= eventDate {
+                        Text("End time must be after start time")
+                            .font(.caption)
+                            .foregroundColor(.red)
+                    }
                 }
 
                 Section(header: Text("Location"), footer: lookupFooter) {
@@ -1550,7 +1560,7 @@ private struct CreateEventView: View {
     private func createEvent() {
         let seed = UUID().uuidString
         let url = URL(string: "https://picsum.photos/seed/\(seed)/1400/900")!
-        onCreate(trimmedTitle, trimmedLocation, eventDate, coordinate, url, selectedPrivacy, Array(selectedFriendIDs), imageData)
+        onCreate(trimmedTitle, trimmedLocation, eventDate, eventEndDate, coordinate, url, selectedPrivacy, Array(selectedFriendIDs), imageData)
         dismiss()
     }
 

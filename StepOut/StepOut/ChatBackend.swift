@@ -1,4 +1,5 @@
 import Foundation
+import SwiftUI
 import FirebaseFirestore
 import FirebaseAuth
 import FirebaseFunctions
@@ -21,6 +22,8 @@ class ChatBackend: ObservableObject {
         }
 
         return chatsArray.compactMap { chatDict in
+            print("[ChatBackend] 📦 Raw chat keys: \(chatDict.keys.sorted())")
+
             guard let chatId = chatDict["chatId"] as? String,
                   let eventId = chatDict["eventId"] as? String,
                   let eventTitle = chatDict["eventTitle"] as? String else {
@@ -39,10 +42,22 @@ class ChatBackend: ObservableObject {
                 lastMessageAt = nil
             }
 
+            let eventEndAt: Date?
+            if let eventEndAtString = chatDict["eventEndAt"] as? String {
+                let formatter = ISO8601DateFormatter()
+                formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+                eventEndAt = formatter.date(from: eventEndAtString)
+                print("[ChatBackend] ✅ Chat '\(eventTitle)' endAt: \(eventEndAtString) -> parsed: \(eventEndAt?.description ?? "FAILED TO PARSE")")
+            } else {
+                eventEndAt = nil
+                print("[ChatBackend] ⚠️ Chat '\(eventTitle)' (eventId: \(eventId)) - NO eventEndAt!")
+            }
+
             return ChatInfo(
                 chatId: chatId,
                 eventId: eventId,
                 eventTitle: eventTitle,
+                eventEndAt: eventEndAt,
                 lastMessageAt: lastMessageAt,
                 lastMessageText: lastMessageText,
                 lastMessageSenderName: lastMessageSenderName,
@@ -126,22 +141,73 @@ struct ChatInfo: Identifiable {
     let chatId: String
     let eventId: String
     let eventTitle: String
+    let eventEndAt: Date?
     let lastMessageAt: Date?
     let lastMessageText: String?
     let lastMessageSenderName: String?
     let unreadCount: Int
     let participantCount: Int
 
-    init(chatId: String, eventId: String, eventTitle: String, lastMessageAt: Date?, lastMessageText: String?, lastMessageSenderName: String?, unreadCount: Int, participantCount: Int) {
+    init(chatId: String, eventId: String, eventTitle: String, eventEndAt: Date?, lastMessageAt: Date?, lastMessageText: String?, lastMessageSenderName: String?, unreadCount: Int, participantCount: Int) {
         self.id = chatId
         self.chatId = chatId
         self.eventId = eventId
         self.eventTitle = eventTitle
+        self.eventEndAt = eventEndAt
         self.lastMessageAt = lastMessageAt
         self.lastMessageText = lastMessageText
         self.lastMessageSenderName = lastMessageSenderName
         self.unreadCount = unreadCount
         self.participantCount = participantCount
+    }
+
+    // Computed property for event status
+    var eventStatus: EventStatus {
+        guard let endAt = eventEndAt else {
+            print("[ChatInfo] '\(eventTitle)' has no endAt, defaulting to .active")
+            return .active
+        }
+
+        let now = Date()
+        let sevenDaysAfterEnd = Calendar.current.date(byAdding: .day, value: 7, to: endAt) ?? endAt
+
+        let status: EventStatus
+        if now < endAt {
+            status = .active
+        } else if now < sevenDaysAfterEnd {
+            status = .expired
+        } else {
+            status = .archived
+        }
+
+        print("[ChatInfo] '\(eventTitle)' status: \(status.displayText) (now: \(now), endAt: \(endAt), 7daysAfter: \(sevenDaysAfterEnd))")
+        return status
+    }
+
+    var canSendMessages: Bool {
+        return eventStatus == .active
+    }
+}
+
+enum EventStatus {
+    case active
+    case expired
+    case archived
+
+    var displayText: String {
+        switch self {
+        case .active: return "Active"
+        case .expired: return "Event Ended"
+        case .archived: return "Archived"
+        }
+    }
+
+    var color: Color {
+        switch self {
+        case .active: return .green
+        case .expired: return .orange
+        case .archived: return .gray
+        }
     }
 }
 

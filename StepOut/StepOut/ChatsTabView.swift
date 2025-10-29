@@ -5,19 +5,41 @@ import FirebaseAuth
 struct ChatsTabView: View {
     let authManager: AuthenticationManager?
     @StateObject private var viewModel = ChatsViewModel()
+    @State private var showOnlyActive = true
+
+    var filteredChats: [ChatInfo] {
+        if showOnlyActive {
+            return viewModel.chats.filter { $0.eventStatus == .active }
+        }
+        return viewModel.chats
+    }
 
     var body: some View {
         NavigationStack {
             Group {
                 if viewModel.isLoading {
                     ProgressView("Loading chats...")
-                } else if viewModel.chats.isEmpty {
+                } else if filteredChats.isEmpty {
                     emptyState
                 } else {
                     chatsList
                 }
             }
             .navigationTitle("Chats")
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Menu {
+                        Button(action: { showOnlyActive = true }) {
+                            Label("Active Only", systemImage: showOnlyActive ? "checkmark" : "")
+                        }
+                        Button(action: { showOnlyActive = false }) {
+                            Label("Show All", systemImage: !showOnlyActive ? "checkmark" : "")
+                        }
+                    } label: {
+                        Image(systemName: "line.3.horizontal.decrease.circle")
+                    }
+                }
+            }
             .task {
                 await viewModel.loadChats()
             }
@@ -46,7 +68,7 @@ struct ChatsTabView: View {
     }
 
     private var chatsList: some View {
-        List(viewModel.chats) { chat in
+        List(filteredChats) { chat in
             NavigationLink {
                 ChatView(chat: chat, authManager: authManager)
             } label: {
@@ -79,6 +101,20 @@ struct ChatRowView: View {
                     Text(chat.eventTitle)
                         .font(.headline)
                         .lineLimit(1)
+
+                    // Status badge
+                    HStack(spacing: 3) {
+                        Circle()
+                            .fill(chat.eventStatus.color)
+                            .frame(width: 5, height: 5)
+                        Text(chat.eventStatus.displayText)
+                            .font(.caption2)
+                            .foregroundStyle(chat.eventStatus.color)
+                    }
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(chat.eventStatus.color.opacity(0.1))
+                    .cornerRadius(8)
 
                     Spacer()
 

@@ -242,6 +242,7 @@ final class EventFeedViewModel: ObservableObject {
         title: String,
         location: String,
         date: Date,
+        endDate: Date,
         coordinate: CLLocationCoordinate2D?,
         imageURL: URL,
         privacy: Event.Privacy,
@@ -258,6 +259,7 @@ final class EventFeedViewModel: ObservableObject {
                         "ownerId", session.user.id,
                         "title", trimmedTitle,
                         "startAt", date,
+                        "endAt", endDate,
                         "location", trimmedLocation,
                         "privacy", privacy.rawValue
                     ])
@@ -266,7 +268,7 @@ final class EventFeedViewModel: ObservableObject {
                         title: trimmedTitle,
                         description: nil,
                         startAt: date,
-                        duration: 60 * 60 * 2,
+                        endAt: endDate,
                         location: trimmedLocation,
                         coordinate: coordinate,
                         privacy: privacy
