@@ -25,7 +25,7 @@ struct ContentView: View {
     @State private var selectedFeedTab: FeedTab = .upcoming
 
 
-    fileprivate enum FeedTab: String, CaseIterable {
+    enum FeedTab: String, CaseIterable {
         case upcoming = "Upcoming"
         case past = "Past"
     }
@@ -145,37 +145,51 @@ private struct MainAppContentView: View {
         TabView(selection: $selectedMainTab) {
             // Home Tab with Events
             NavigationStack {
-                VStack(spacing: 16) {
-                    Picker("Event Filter", selection: $selectedFeedTab) {
-                        ForEach(ContentView.FeedTab.allCases, id: \.self) { tab in
-                            Text(tab.rawValue).tag(tab)
-                        }
-                    }
-                    .pickerStyle(.segmented)
-                    .labelsHidden()
-                    .padding(.horizontal, 20)
-                    .padding(.top, 12)
+                ZStack {
+                    // Gradient background
+                    LinearGradient(
+                        colors: [
+                            Color.blue.opacity(0.05),
+                            Color.purple.opacity(0.05),
+                            Color(.systemBackground)
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                    .ignoresSafeArea()
 
-                    Group {
-                        if selectedFeedTab == .upcoming {
-                            upcomingFeed
-                        } else {
-                            pastFeed
+                    VStack(spacing: 0) {
+                        // Modern header
+                        ModernHomeHeader(
+                            selectedTab: $selectedFeedTab,
+                            onCreateTapped: { showingCreateEvent = true }
+                        )
+
+                        Group {
+                            if selectedFeedTab == .upcoming {
+                                upcomingFeed
+                            } else {
+                                pastFeed
+                            }
                         }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                     }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
-                .background(Color(.systemBackground).ignoresSafeArea())
-                .navigationTitle(selectedFeedTab == .upcoming ? "Upcoming Events" : "Past Events")
+                .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
-                    ToolbarItem(placement: .navigationBarTrailing) {
-                        Button {
-                            showingCreateEvent = true
-                        } label: {
-                            Image(systemName: "plus.circle.fill")
-                                .imageScale(.large)
+                    ToolbarItem(placement: .principal) {
+                        HStack(spacing: 8) {
+                            Image(systemName: "flame.fill")
+                                .foregroundStyle(
+                                    LinearGradient(
+                                        colors: [.orange, .pink],
+                                        startPoint: .topLeading,
+                                        endPoint: .bottomTrailing
+                                    )
+                                )
+                            Text("StepOut")
+                                .font(.title3.bold())
                         }
-                        .accessibilityLabel("Create event")
                     }
                 }
             }
@@ -300,6 +314,76 @@ private struct MainAppContentView: View {
                     .progressViewStyle(.circular)
                 Spacer()
             }
+        } else if viewModel.feedEvents.isEmpty {
+            // Beautiful empty state
+            VStack(spacing: 32) {
+                Spacer()
+
+                // Gradient icon
+                ZStack {
+                    Circle()
+                        .fill(
+                            LinearGradient(
+                                colors: [.blue.opacity(0.15), .purple.opacity(0.15)],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                        .frame(width: 120, height: 120)
+
+                    Image(systemName: "calendar.badge.plus")
+                        .font(.system(size: 48, weight: .light))
+                        .foregroundStyle(
+                            LinearGradient(
+                                colors: [.blue, .purple],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                }
+
+                VStack(spacing: 12) {
+                    Text("No Events Yet")
+                        .font(.title.bold())
+                        .foregroundStyle(.primary)
+
+                    Text("Create your first event to start\nconnecting with friends")
+                        .font(.body)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                        .lineLimit(2)
+                }
+
+                // CTA Button
+                Button(action: { showingCreateEvent = true }) {
+                    HStack(spacing: 12) {
+                        Image(systemName: "plus.circle.fill")
+                            .font(.title3)
+                        Text("Create Event")
+                            .font(.headline)
+                    }
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 32)
+                    .padding(.vertical, 16)
+                    .background(
+                        LinearGradient(
+                            colors: [.blue, .purple],
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )
+                    )
+                    .cornerRadius(16)
+                    .shadow(
+                        color: .blue.opacity(0.4),
+                        radius: 12,
+                        x: 0,
+                        y: 6
+                    )
+                }
+
+                Spacer()
+            }
+            .padding(.horizontal, 40)
         } else {
             GeometryReader { proxy in
                 let containerHeight = proxy.size.height
@@ -1399,6 +1483,7 @@ private struct CreateEventView: View {
     @State private var lookupStatus: String?
     @State private var photoItem: PhotosPickerItem?
     @State private var imageData: Data?
+    @State private var showLocationSearch = false
 
     private let geocoder = CLGeocoder()
 
@@ -1427,7 +1512,18 @@ private struct CreateEventView: View {
 
                 Section(header: Text("Details")) {
                     TextField("Event name", text: $title)
-                    TextField("Location", text: $location)
+
+                    // Location field with search button
+                    HStack {
+                        TextField("Location", text: $location)
+                        Button(action: { showLocationSearch = true }) {
+                            Image(systemName: "magnifyingglass")
+                                .foregroundColor(.blue)
+                                .font(.body.weight(.medium))
+                        }
+                        .buttonStyle(.plain)
+                    }
+
                     DatePicker("Start time", selection: $eventDate, displayedComponents: [.date, .hourAndMinute])
                     DatePicker("End time", selection: $eventEndDate, displayedComponents: [.date, .hourAndMinute])
 
@@ -1516,6 +1612,9 @@ private struct CreateEventView: View {
                 if newValue == .public {
                     selectedFriendIDs.removeAll()
                 }
+            }
+            .sheet(isPresented: $showLocationSearch) {
+                LocationSearchView(selectedLocation: $location, selectedCoordinate: $coordinate)
             }
         }
     }
@@ -2177,6 +2276,327 @@ private struct EmailVerificationBanner: View {
             }
         } catch {
             print("[Verification] Error reloading user: \(error)")
+        }
+    }
+}
+
+// MARK: - Modern Home Header
+struct ModernHomeHeader: View {
+    @Binding var selectedTab: ContentView.FeedTab
+    let onCreateTapped: () -> Void
+
+    var body: some View {
+        VStack(spacing: 16) {
+            HStack {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Discover")
+                        .font(.largeTitle.bold())
+                        .foregroundStyle(
+                            LinearGradient(
+                                colors: [.primary, .primary.opacity(0.7)],
+                                startPoint: .leading,
+                                endPoint: .trailing
+                            )
+                        )
+
+                    Text("Find amazing events near you")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer()
+
+                // Create button with gradient
+                Button(action: onCreateTapped) {
+                    ZStack {
+                        Circle()
+                            .fill(
+                                LinearGradient(
+                                    colors: [.blue, .purple],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                )
+                            )
+                            .frame(width: 56, height: 56)
+                            .shadow(color: .blue.opacity(0.3), radius: 8, y: 4)
+
+                        Image(systemName: "plus")
+                            .font(.title2.bold())
+                            .foregroundColor(.white)
+                    }
+                }
+                .accessibilityLabel("Create event")
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 8)
+
+            // Modern segmented control
+            HStack(spacing: 12) {
+                ForEach(ContentView.FeedTab.allCases, id: \.self) { tab in
+                    Button {
+                        withAnimation(.spring(response: 0.3)) {
+                            selectedTab = tab
+                        }
+                    } label: {
+                        VStack(spacing: 8) {
+                            Text(tab.rawValue)
+                                .font(.subheadline.weight(selectedTab == tab ? .semibold : .regular))
+                                .foregroundColor(selectedTab == tab ? .primary : .secondary)
+
+                            if selectedTab == tab {
+                                Rectangle()
+                                    .fill(
+                                        LinearGradient(
+                                            colors: [.blue, .purple],
+                                            startPoint: .leading,
+                                            endPoint: .trailing
+                                        )
+                                    )
+                                    .frame(height: 3)
+                                    .cornerRadius(1.5)
+                                    .transition(.scale.combined(with: .opacity))
+                            } else {
+                                Rectangle()
+                                    .fill(Color.clear)
+                                    .frame(height: 3)
+                            }
+                        }
+                        .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, 20)
+            .padding(.bottom, 12)
+        }
+        .background(
+            Color(.systemBackground)
+                .shadow(color: .black.opacity(0.05), radius: 8, y: 2)
+        )
+    }
+}
+
+// MARK: - Location Search View
+import MapKit
+
+private struct LocationSearchView: View {
+    @Environment(\.dismiss) private var dismiss
+    @Binding var selectedLocation: String
+    @Binding var selectedCoordinate: CLLocationCoordinate2D?
+
+    @StateObject private var searchCompleter = LocationSearchCompleter()
+    @State private var searchText = ""
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 0) {
+                // Search bar
+                HStack(spacing: 12) {
+                    Image(systemName: "magnifyingglass")
+                        .foregroundStyle(.secondary)
+                        .font(.body.weight(.medium))
+
+                    TextField("Search for a place", text: $searchText)
+                        .textFieldStyle(.plain)
+                        .font(.body)
+                        .autocorrectionDisabled()
+                        .onChange(of: searchText) { newValue in
+                            searchCompleter.search(query: newValue)
+                        }
+
+                    if !searchText.isEmpty {
+                        Button(action: {
+                            searchText = ""
+                            searchCompleter.results = []
+                        }) {
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundStyle(.secondary)
+                                .font(.body.weight(.medium))
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+                .background(Color(.secondarySystemBackground))
+                .cornerRadius(12)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+
+                // Results list
+                ScrollView {
+                    LazyVStack(spacing: 0) {
+                        ForEach(searchCompleter.results, id: \.self) { result in
+                            LocationSearchResultRow(
+                                result: result,
+                                onSelect: {
+                                    selectLocation(result)
+                                }
+                            )
+                        }
+                    }
+                }
+
+                if searchCompleter.results.isEmpty && !searchText.isEmpty && !searchCompleter.isSearching {
+                    VStack(spacing: 16) {
+                        Spacer()
+                        Image(systemName: "mappin.slash")
+                            .font(.system(size: 48))
+                            .foregroundStyle(.secondary)
+                        Text("No places found")
+                            .font(.headline)
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                    }
+                }
+
+                if searchText.isEmpty {
+                    VStack(spacing: 16) {
+                        Spacer()
+                        Image(systemName: "map")
+                            .font(.system(size: 48))
+                            .foregroundStyle(.secondary)
+                        Text("Search for a location")
+                            .font(.headline)
+                            .foregroundStyle(.secondary)
+                        Text("Type to start searching")
+                            .font(.subheadline)
+                            .foregroundStyle(.tertiary)
+                        Spacer()
+                    }
+                }
+            }
+            .navigationTitle("Find Location")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Cancel") { dismiss() }
+                }
+            }
+        }
+    }
+
+    private func selectLocation(_ result: MKLocalSearchCompletion) {
+        let searchRequest = MKLocalSearch.Request(completion: result)
+        let search = MKLocalSearch(request: searchRequest)
+
+        search.start { response, error in
+            guard let placemark = response?.mapItems.first?.placemark else { return }
+
+            // Build full address
+            var addressComponents: [String] = []
+            if let name = placemark.name {
+                addressComponents.append(name)
+            }
+            if let locality = placemark.locality {
+                addressComponents.append(locality)
+            }
+            if let administrativeArea = placemark.administrativeArea {
+                addressComponents.append(administrativeArea)
+            }
+
+            selectedLocation = addressComponents.joined(separator: ", ")
+            selectedCoordinate = placemark.coordinate
+            dismiss()
+        }
+    }
+}
+
+private struct LocationSearchResultRow: View {
+    let result: MKLocalSearchCompletion
+    let onSelect: () -> Void
+
+    var body: some View {
+        Button(action: onSelect) {
+            HStack(spacing: 12) {
+                // Icon
+                ZStack {
+                    Circle()
+                        .fill(
+                            LinearGradient(
+                                colors: [.blue.opacity(0.15), .purple.opacity(0.15)],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                        .frame(width: 40, height: 40)
+
+                    Image(systemName: "mappin.circle.fill")
+                        .font(.system(size: 20))
+                        .foregroundStyle(
+                            LinearGradient(
+                                colors: [.blue, .purple],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                }
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(result.title)
+                        .font(.body)
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+
+                    if !result.subtitle.isEmpty {
+                        Text(result.subtitle)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                }
+
+                Spacer()
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+        }
+        .buttonStyle(.plain)
+        .background(
+            Color(.systemBackground)
+                .contentShape(Rectangle())
+        )
+        Divider()
+            .padding(.leading, 68)
+    }
+}
+
+// Location search completer to handle MKLocalSearchCompleter
+@MainActor
+private class LocationSearchCompleter: NSObject, ObservableObject, MKLocalSearchCompleterDelegate {
+    @Published var results: [MKLocalSearchCompletion] = []
+    @Published var isSearching = false
+
+    private let completer = MKLocalSearchCompleter()
+
+    override init() {
+        super.init()
+        completer.delegate = self
+        completer.resultTypes = [.address, .pointOfInterest]
+    }
+
+    func search(query: String) {
+        guard !query.isEmpty else {
+            results = []
+            return
+        }
+
+        isSearching = true
+        completer.queryFragment = query
+    }
+
+    nonisolated func completerDidUpdateResults(_ completer: MKLocalSearchCompleter) {
+        Task { @MainActor in
+            results = completer.results
+            isSearching = false
+        }
+    }
+
+    nonisolated func completer(_ completer: MKLocalSearchCompleter, didFailWithError error: Error) {
+        Task { @MainActor in
+            results = []
+            isSearching = false
+            print("[LocationSearchCompleter] Error: \(error.localizedDescription)")
         }
     }
 }

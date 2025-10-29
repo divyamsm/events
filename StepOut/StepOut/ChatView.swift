@@ -20,14 +20,15 @@ struct ChatView: View {
 
     var body: some View {
         ZStack {
-            // Subtle gradient background
+            // Modern gradient background matching home page theme
             LinearGradient(
                 colors: [
-                    Color(.systemBackground),
-                    Color(.systemBackground).opacity(0.95)
+                    Color.blue.opacity(0.03),
+                    Color.purple.opacity(0.03),
+                    Color(.systemBackground)
                 ],
-                startPoint: .top,
-                endPoint: .bottom
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
             )
             .ignoresSafeArea()
 
@@ -82,19 +83,34 @@ struct ChatView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .principal) {
-                VStack(spacing: 2) {
+                VStack(spacing: 4) {
                     Text(chat.eventTitle)
-                        .font(.headline)
+                        .font(.headline.weight(.semibold))
+                        .foregroundStyle(
+                            LinearGradient(
+                                colors: [.primary, .primary.opacity(0.8)],
+                                startPoint: .leading,
+                                endPoint: .trailing
+                            )
+                        )
 
-                    // Event status badge
-                    HStack(spacing: 4) {
+                    // Event status badge with modern styling
+                    HStack(spacing: 6) {
                         Circle()
                             .fill(chat.eventStatus.color)
-                            .frame(width: 6, height: 6)
+                            .frame(width: 7, height: 7)
+                            .shadow(color: chat.eventStatus.color.opacity(0.4), radius: 2, y: 1)
+
                         Text(chat.eventStatus.displayText)
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
+                            .font(.caption.weight(.medium))
+                            .foregroundStyle(chat.eventStatus.color)
                     }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 4)
+                    .background(
+                        Capsule()
+                            .fill(chat.eventStatus.color.opacity(0.15))
+                    )
                 }
             }
         }
@@ -133,36 +149,68 @@ struct ModernChatInputBar: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // Subtle divider
-            Rectangle()
-                .fill(Color(.separator).opacity(0.3))
-                .frame(height: 0.5)
+            // Modern gradient divider
+            LinearGradient(
+                colors: [
+                    Color.blue.opacity(0.15),
+                    Color.purple.opacity(0.15),
+                    Color(.separator).opacity(0.3)
+                ],
+                startPoint: .leading,
+                endPoint: .trailing
+            )
+            .frame(height: 1)
 
             HStack(alignment: .bottom, spacing: 12) {
-                // Text input with modern styling
-                HStack(spacing: 8) {
+                // Enhanced text input field
+                HStack(spacing: 10) {
                     TextField("Type a message...", text: $messageText, axis: .vertical)
                         .textFieldStyle(.plain)
                         .focused($isInputFocused)
                         .lineLimit(1...6)
-                        .padding(.vertical, 10)
+                        .padding(.vertical, 11)
+                        .font(.body)
 
                     // Character count for long messages
                     if messageText.count > 100 {
                         Text("\(messageText.count)")
-                            .font(.caption2)
+                            .font(.caption.weight(.medium))
                             .foregroundStyle(.secondary)
                             .padding(.trailing, 4)
                     }
                 }
-                .padding(.horizontal, 16)
+                .padding(.horizontal, 18)
                 .background(
                     RoundedRectangle(cornerRadius: 24, style: .continuous)
                         .fill(Color(.secondarySystemBackground))
-                        .shadow(color: .black.opacity(0.05), radius: 2, y: 1)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                                .stroke(
+                                    isInputFocused ?
+                                        LinearGradient(
+                                            colors: [.blue.opacity(0.3), .purple.opacity(0.3)],
+                                            startPoint: .leading,
+                                            endPoint: .trailing
+                                        ) :
+                                        LinearGradient(
+                                            colors: [.clear, .clear],
+                                            startPoint: .leading,
+                                            endPoint: .trailing
+                                        ),
+                                    lineWidth: 1.5
+                                )
+                        )
+                        .shadow(
+                            color: isInputFocused ?
+                                Color.blue.opacity(0.1) :
+                                Color.black.opacity(0.03),
+                            radius: isInputFocused ? 8 : 4,
+                            y: 2
+                        )
                 )
+                .animation(.spring(response: 0.3), value: isInputFocused)
 
-                // Animated send button
+                // Enhanced animated send button
                 Button(action: onSend) {
                     ZStack {
                         Circle()
@@ -174,26 +222,34 @@ struct ModernChatInputBar: View {
                                     endPoint: .bottomTrailing
                                 ) :
                                 LinearGradient(
-                                    colors: [Color(.systemGray4), Color(.systemGray4)],
+                                    colors: [Color(.systemGray5), Color(.systemGray4)],
                                     startPoint: .topLeading,
                                     endPoint: .bottomTrailing
                                 )
                             )
-                            .frame(width: 36, height: 36)
+                            .frame(width: 38, height: 38)
+                            .shadow(
+                                color: canSend ?
+                                    Color.blue.opacity(0.3) :
+                                    Color.clear,
+                                radius: canSend ? 8 : 0,
+                                y: canSend ? 2 : 0
+                            )
 
                         Image(systemName: "arrow.up")
-                            .font(.system(size: 16, weight: .semibold))
+                            .font(.system(size: 17, weight: .bold))
                             .foregroundColor(.white)
                     }
                 }
                 .disabled(!canSend)
-                .scaleEffect(canSend ? 1.0 : 0.9)
-                .animation(.spring(response: 0.3, dampingFraction: 0.6), value: canSend)
+                .scaleEffect(canSend ? 1.0 : 0.85)
+                .animation(.spring(response: 0.3, dampingFraction: 0.7), value: canSend)
             }
             .padding(.horizontal, 16)
-            .padding(.vertical, 12)
+            .padding(.vertical, 14)
             .background(
                 Color(.systemBackground)
+                    .shadow(color: .black.opacity(0.05), radius: 8, y: -2)
                     .ignoresSafeArea(edges: .bottom)
             )
         }
@@ -239,13 +295,14 @@ struct MessageBubble: View {
 
                 // Message bubble with modern styling
                 Text(message.text)
-                    .font(.system(size: 16))
+                    .font(.system(size: 16, weight: .regular))
+                    .lineSpacing(2)
                     .padding(.horizontal, 16)
                     .padding(.vertical, 12)
                     .background(
                         Group {
                             if isFromCurrentUser {
-                                // Gradient bubble for current user
+                                // Enhanced gradient bubble for current user
                                 RoundedRectangle(cornerRadius: 20, style: .continuous)
                                     .fill(
                                         LinearGradient(
@@ -254,21 +311,36 @@ struct MessageBubble: View {
                                             endPoint: .bottomTrailing
                                         )
                                     )
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 20, style: .continuous)
+                                            .stroke(
+                                                LinearGradient(
+                                                    colors: [.white.opacity(0.3), .clear],
+                                                    startPoint: .topLeading,
+                                                    endPoint: .bottomTrailing
+                                                ),
+                                                lineWidth: 0.5
+                                            )
+                                    )
                             } else {
-                                // Subtle background for other users
+                                // Modern background for other users
                                 RoundedRectangle(cornerRadius: 20, style: .continuous)
                                     .fill(Color(.secondarySystemBackground))
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 20, style: .continuous)
+                                            .stroke(Color(.separator).opacity(0.2), lineWidth: 0.5)
+                                    )
                             }
                         }
                     )
                     .foregroundStyle(isFromCurrentUser ? .white : .primary)
                     .shadow(
                         color: isFromCurrentUser ?
-                            Color.blue.opacity(0.2) :
-                            Color.black.opacity(0.05),
-                        radius: 8,
+                            Color.blue.opacity(0.25) :
+                            Color.black.opacity(0.06),
+                        radius: isFromCurrentUser ? 12 : 6,
                         x: 0,
-                        y: 2
+                        y: isFromCurrentUser ? 4 : 2
                     )
 
                 // Timestamp with subtle styling
