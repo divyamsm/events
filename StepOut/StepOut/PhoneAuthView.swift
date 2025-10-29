@@ -35,20 +35,22 @@ struct PhoneAuthView: View {
                             .font(.subheadline)
                             .foregroundColor(.secondary)
 
-                        HStack {
+                        HStack(spacing: 12) {
                             Text("+1")
                                 .font(.body)
                                 .foregroundColor(.secondary)
-                                .padding(.leading, 16)
 
                             TextField("(555) 123-4567", text: $phoneNumber)
                                 .keyboardType(.phonePad)
                                 .font(.body)
-                                .padding(.vertical, 16)
+                                .frame(height: 56)
+                                .contentShape(Rectangle())
                                 .onChange(of: phoneNumber) { newValue in
                                     phoneNumber = formatPhoneNumber(newValue)
                                 }
                         }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 8)
                         .background(Color(.systemGray6))
                         .cornerRadius(12)
                     }
@@ -93,7 +95,9 @@ struct PhoneAuthView: View {
                             .keyboardType(.numberPad)
                             .font(.title2)
                             .multilineTextAlignment(.center)
-                            .padding(.vertical, 16)
+                            .frame(height: 70)
+                            .contentShape(Rectangle())
+                            .padding(.horizontal, 16)
                             .background(Color(.systemGray6))
                             .cornerRadius(12)
                             .onChange(of: verificationCode) { newValue in

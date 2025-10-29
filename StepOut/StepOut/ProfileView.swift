@@ -1595,7 +1595,10 @@ private struct EditProfileSheetView: View {
 
                             TextField("Tell us about yourself", text: $bio, axis: .vertical)
                                 .lineLimit(3...6)
-                                .padding()
+                                .frame(minHeight: 100)
+                                .contentShape(Rectangle())
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 16)
                                 .background(
                                     RoundedRectangle(cornerRadius: 12)
                                         .fill(Color(.secondarySystemBackground))
@@ -1678,7 +1681,9 @@ private struct ModernTextField: View {
                 .foregroundColor(.secondary)
 
             TextField(placeholder, text: $text)
-                .padding()
+                .frame(height: 56)
+                .contentShape(Rectangle())
+                .padding(.horizontal, 16)
                 .background(
                     RoundedRectangle(cornerRadius: 12)
                         .fill(Color(.secondarySystemBackground))
