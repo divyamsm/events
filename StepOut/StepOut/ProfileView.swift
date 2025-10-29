@@ -74,8 +74,13 @@ struct RemoteProfileResponse {
     }
 
     init?(dictionary: [String: Any]) {
+        print("🔴 [RemoteProfileResponse] init called with dictionary keys: \(dictionary.keys.joined(separator: ", "))")
+
         guard let profileDict = dictionary["profile"] as? [String: Any],
-              let userIdString = profileDict["userId"] as? String else { return nil }
+              let userIdString = profileDict["userId"] as? String else {
+            print("🔴 [RemoteProfileResponse] init FAILED - missing profile dict or userId")
+            return nil
+        }
 
         // Convert Firebase UID to UUID (Firebase UIDs are not valid UUIDs)
         let userUUID: UUID
@@ -156,18 +161,48 @@ struct RemoteProfileResponse {
             pendingInvites = []
         }
 
+        print("🔴 [RemoteProfileResponse] About to parse attendedEvents...")
+        print("🔴 [RemoteProfileResponse] attendedEvents value type: \(type(of: dictionary["attendedEvents"]))")
+
         if let attendedArray = dictionary["attendedEvents"] as? [[String: Any]] {
+            print("🔴 [RemoteProfileResponse] Successfully cast to [[String: Any]], parsing \(attendedArray.count) events")
+
+            #if DEBUG
+            print("[RemoteProfileResponse] Parsing \(attendedArray.count) attended events from dictionary")
+            #endif
+
             attendedEvents = attendedArray.compactMap { item in
-                guard let idString = item["eventId"] as? String else { return nil }
+                guard let idString = item["eventId"] as? String else {
+                    print("🔴 [RemoteProfileResponse] ⚠️ Skipping event - missing eventId")
+                    return nil
+                }
                 let uuid = UUID(uuidString: idString) ?? Self.uuidFromFirebaseUID(idString)
                 let title = item["title"] as? String ?? "Event"
                 let location = item["location"] as? String ?? ""
                 let coverImagePath = item["coverImagePath"] as? String
-                let startAt = (item["startAt"] as? String).flatMap { ISO8601DateFormatter().date(from: $0) }
-                let endAt = (item["endAt"] as? String).flatMap { ISO8601DateFormatter().date(from: $0) }
+
+                let startAtString = item["startAt"] as? String
+                let startAt = startAtString.flatMap { dateString in
+                    let formatter = ISO8601DateFormatter()
+                    formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+                    return formatter.date(from: dateString)
+                }
+                let endAt = (item["endAt"] as? String).flatMap { dateString in
+                    let formatter = ISO8601DateFormatter()
+                    formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+                    return formatter.date(from: dateString)
+                }
+
+                print("🔴 [RemoteProfileResponse] Event '\(title)' - startAt string: '\(startAtString ?? "nil")', parsed date: \(startAt?.description ?? "nil")")
+
                 return RemoteAttendedEvent(id: uuid, title: title, startAt: startAt, endAt: endAt, location: location, coverImagePath: coverImagePath)
             }
+
+            print("🔴 [RemoteProfileResponse] Successfully parsed \(attendedEvents.count) attended events")
         } else {
+            #if DEBUG
+            print("[RemoteProfileResponse] ⚠️ No attendedEvents array in dictionary. Dictionary keys: \(dictionary.keys.joined(separator: ", "))")
+            #endif
             attendedEvents = []
         }
     }
@@ -314,18 +349,25 @@ final class ProfileViewModel: ObservableObject {
         self.userId = userId
 #if canImport(FirebaseFunctions)
         self.backend = backend ?? FirebaseProfileBackend()
+        print("🟢 [ProfileViewModel] init - Using FirebaseProfileBackend for userId: \(userId)")
 #else
         self.backend = backend ?? MockProfileBackend()
+        print("🟡 [ProfileViewModel] init - Using MockProfileBackend for userId: \(userId)")
 #endif
 
 #if DEBUG
         if ProcessInfo.processInfo.environment["XCODE_RUNNING_FOR_PREVIEWS"] == "1" {
             profile = ProfileRepository.sampleProfile
+            print("🔵 [ProfileViewModel] init - Using sample profile for preview")
         }
 #endif
     }
 
     func loadProfile() async {
+        #if DEBUG
+        print("[Profile] 🔵 loadProfile called for userId: \(userId)")
+        #endif
+
         // Only show loading if we don't have a profile yet
         let shouldShowLoading = profile == nil
         if shouldShowLoading {
@@ -338,7 +380,16 @@ final class ProfileViewModel: ObservableObject {
         }
 
         do {
+            #if DEBUG
+            print("[Profile] 🔵 Fetching profile from backend...")
+            #endif
+
             let response = try await backend.fetchProfile(userId: userId)
+
+            #if DEBUG
+            print("[Profile] 🔵 Backend returned profile with \(response.attendedEvents.count) events")
+            #endif
+
             profile = mapResponse(response)
             errorMessage = nil
             logDebug("loadProfile succeeded", extra: [
@@ -350,10 +401,15 @@ final class ProfileViewModel: ObservableObject {
             profile?.pendingInvites.forEach { invite in
                 print("  - \(invite.direction.rawValue): \(invite.name)")
             }
+
+            #if DEBUG
+            print("[Profile] ✅ Profile loaded successfully with \(profile?.attendedEvents.count ?? 0) attended events")
+            #endif
         } catch {
             logFailure(context: "loadProfile", error: error)
             errorMessage = readableMessage(for: error)
 #if DEBUG
+            print("[Profile] ❌ Failed to load profile, using sample profile")
             profile = ProfileRepository.sampleProfile
 #endif
         }
@@ -408,6 +464,10 @@ final class ProfileViewModel: ObservableObject {
     private func mapResponse(_ response: RemoteProfileResponse) -> UserProfile {
         let base = response.profile
 
+        #if DEBUG
+        print("[Profile] mapResponse - received \(response.attendedEvents.count) attended events from backend")
+        #endif
+
         let friends = response.friends.map { Friend(id: $0.id, name: $0.displayName, avatarURL: $0.photoURL) }
 
         let pendingInvites = response.pendingInvites.map { invite in
@@ -420,6 +480,10 @@ final class ProfileViewModel: ObservableObject {
         }
 
         let attendedEvents = response.attendedEvents.map { convertAttendedEvent($0) }
+
+        #if DEBUG
+        print("[Profile] mapResponse - converted \(attendedEvents.count) attended events")
+        #endif
 
         let usernameValue: String
         if let username = base.username, username.isEmpty == false {
@@ -445,9 +509,19 @@ final class ProfileViewModel: ObservableObject {
     }
 
     private func convertAttendedEvent(_ event: RemoteProfileResponse.RemoteAttendedEvent) -> AttendedEvent {
-        AttendedEvent(
+        // Use startAt as the primary date
+        let eventDate = event.startAt ?? Date()
+
+        #if DEBUG
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .short
+        print("[Profile] Converting attended event '\(event.title)' - startAt: \(event.startAt.map { formatter.string(from: $0) } ?? "nil"), using date: \(formatter.string(from: eventDate))")
+        #endif
+
+        return AttendedEvent(
             eventID: event.id,
-            date: event.startAt ?? Date(),
+            date: eventDate,
             title: event.title,
             location: event.location,
             startAt: event.startAt,
@@ -508,6 +582,8 @@ struct ProfileView: View {
     }
 
     var body: some View {
+        let _ = print("🟣 [ProfileView] body rendering - viewModel.profile events count: \(viewModel.profile?.attendedEvents.count ?? -1)")
+
         content
         .background(Color(.systemBackground))
         .navigationTitle("Profile")
@@ -1174,7 +1250,32 @@ private struct ProfileCalendarView: View {
     }
 
     private var eventsByDay: [Int: [AttendedEvent]] {
-        Dictionary(grouping: attendedEvents) { event in
+        #if DEBUG
+        print("[Calendar] Displaying month: \(calendar.component(.month, from: month))/\(calendar.component(.year, from: month))")
+        print("[Calendar] Total events: \(attendedEvents.count)")
+
+        let formatter = DateFormatter()
+        formatter.dateFormat = "MMM d, yyyy"
+        attendedEvents.forEach { event in
+            print("[Calendar]   - '\(event.title)' on \(formatter.string(from: event.date))")
+        }
+        #endif
+
+        // First filter events that belong to the displayed month/year
+        let eventsInMonth = attendedEvents.filter { event in
+            let eventYear = calendar.component(.year, from: event.date)
+            let eventMonth = calendar.component(.month, from: event.date)
+            let displayYear = calendar.component(.year, from: month)
+            let displayMonth = calendar.component(.month, from: month)
+            return eventYear == displayYear && eventMonth == displayMonth
+        }
+
+        #if DEBUG
+        print("[Calendar] Events in current month: \(eventsInMonth.count)")
+        #endif
+
+        // Then group by day
+        return Dictionary(grouping: eventsInMonth) { event in
             calendar.component(.day, from: event.date)
         }
     }
