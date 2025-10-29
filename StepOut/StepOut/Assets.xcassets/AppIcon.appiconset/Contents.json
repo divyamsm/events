@@ -19,6 +19,7 @@
       "size" : "29x29"
     },
     {
+      "filename" : "AppIcon-29.png",
       "idiom" : "iphone",
       "scale" : "3x",
       "size" : "29x29"
@@ -111,5 +112,8 @@
   "info" : {
     "author" : "xcode",
     "version" : 1
+  },
+  "properties" : {
+    "pre-rendered" : true
   }
 }
