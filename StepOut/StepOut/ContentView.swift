@@ -173,10 +173,12 @@ private struct MainAppContentView: View {
                         )
 
                         Group {
-                            if viewMode == .map {
-                                eventsMapView
-                            } else if selectedFeedTab == .upcoming {
-                                upcomingFeed
+                            if selectedFeedTab == .upcoming {
+                                if viewMode == .map {
+                                    eventsMapView
+                                } else {
+                                    upcomingFeed
+                                }
                             } else {
                                 pastFeed
                             }
@@ -312,6 +314,14 @@ private struct MainAppContentView: View {
             }
         }
         .animation(.spring(response: 0.45, dampingFraction: 0.85), value: viewModel.toastEntry?.id)
+        .onChange(of: selectedFeedTab) { newTab in
+            // Automatically switch to cards view when switching to Past tab
+            if newTab == .past && viewMode == .map {
+                withAnimation(.spring(response: 0.3)) {
+                    viewMode = .cards
+                }
+            }
+        }
     }
 
     @ViewBuilder
@@ -2334,27 +2344,30 @@ struct ModernHomeHeader: View {
 
                 Spacer()
 
-                // View mode toggle
-                HStack(spacing: 8) {
-                    Button(action: { withAnimation(.spring(response: 0.3)) { viewMode = .cards } }) {
-                        Image(systemName: viewMode == .cards ? "square.stack.3d.up.fill" : "square.stack.3d.up")
-                            .font(.title3)
-                            .foregroundStyle(
-                                viewMode == .cards ?
-                                    LinearGradient(colors: [.blue, .purple], startPoint: .topLeading, endPoint: .bottomTrailing) :
-                                    LinearGradient(colors: [.secondary, .secondary], startPoint: .topLeading, endPoint: .bottomTrailing)
-                            )
-                    }
+                // View mode toggle (only for Upcoming tab)
+                if selectedTab == .upcoming {
+                    HStack(spacing: 8) {
+                        Button(action: { withAnimation(.spring(response: 0.3)) { viewMode = .cards } }) {
+                            Image(systemName: viewMode == .cards ? "square.stack.3d.up.fill" : "square.stack.3d.up")
+                                .font(.title3)
+                                .foregroundStyle(
+                                    viewMode == .cards ?
+                                        LinearGradient(colors: [.blue, .purple], startPoint: .topLeading, endPoint: .bottomTrailing) :
+                                        LinearGradient(colors: [.secondary, .secondary], startPoint: .topLeading, endPoint: .bottomTrailing)
+                                )
+                        }
 
-                    Button(action: { withAnimation(.spring(response: 0.3)) { viewMode = .map } }) {
-                        Image(systemName: viewMode == .map ? "map.fill" : "map")
-                            .font(.title3)
-                            .foregroundStyle(
-                                viewMode == .map ?
-                                    LinearGradient(colors: [.blue, .purple], startPoint: .topLeading, endPoint: .bottomTrailing) :
-                                    LinearGradient(colors: [.secondary, .secondary], startPoint: .topLeading, endPoint: .bottomTrailing)
-                            )
+                        Button(action: { withAnimation(.spring(response: 0.3)) { viewMode = .map } }) {
+                            Image(systemName: viewMode == .map ? "map.fill" : "map")
+                                .font(.title3)
+                                .foregroundStyle(
+                                    viewMode == .map ?
+                                        LinearGradient(colors: [.blue, .purple], startPoint: .topLeading, endPoint: .bottomTrailing) :
+                                        LinearGradient(colors: [.secondary, .secondary], startPoint: .topLeading, endPoint: .bottomTrailing)
+                                )
+                        }
                     }
+                    .transition(.opacity)
                 }
 
                 // Create button with gradient
