@@ -1,6 +1,7 @@
 import SwiftUI
 import FirebaseFirestore
 import FirebaseFunctions
+import FirebaseAuth
 import Contacts
 
 // MARK: - Friend Request Model
@@ -86,6 +87,7 @@ struct UnifiedFriendsView: View {
                 viewModel.startListening(userId: userId)
                 contactsManager.checkPermission()
                 contactsManager.startListeningToOutgoingRequests(currentUserId: userId)
+                contactsManager.startListeningToFriends(currentUserId: userId)
 
                 // Auto-fetch if permission already granted
                 if contactsManager.permissionStatus == .authorized && contactsManager.contacts.isEmpty {
@@ -98,6 +100,7 @@ struct UnifiedFriendsView: View {
             .onDisappear {
                 viewModel.stopListening()
                 contactsManager.stopListeningToOutgoingRequests()
+                contactsManager.stopListeningToFriends()
             }
             .overlay(alignment: .top) {
                 if showSuccessToast {
@@ -353,6 +356,7 @@ struct ContactRowUnified: View {
 
     @State private var requestStatus: FriendRequestStatus = .none
     @State private var isProcessing = false
+    @State private var showUnfriendAlert = false
 
     enum FriendRequestStatus {
         case none       // No request sent
@@ -430,68 +434,88 @@ struct ContactRowUnified: View {
                         .frame(width: 80)
                 } else {
                     let isPending = contactsManager.isPending(userId: appContact.userId ?? "")
+                    let isFriend = contactsManager.isFriend(userId: appContact.userId ?? "")
 
                     Button(action: {
                         guard let userId = appContact.userId else { return }
-                        guard !isPending && requestStatus == .none else { return }
 
-                        isProcessing = true
-                        Task {
-                            do {
-                                try await contactsManager.sendFriendRequest(to: userId)
-                                await MainActor.run {
-                                    isProcessing = false
-                                    requestStatus = .pending
-                                }
-                            } catch {
-                                await MainActor.run {
-                                    isProcessing = false
-                                    requestStatus = .failed
+                        if isFriend {
+                            // Show confirmation alert before unfriending
+                            showUnfriendAlert = true
+                        } else if !isPending && requestStatus == .none {
+                            // Send friend request
+                            isProcessing = true
+                            Task {
+                                do {
+                                    try await contactsManager.sendFriendRequest(to: userId)
+                                    await MainActor.run {
+                                        isProcessing = false
+                                        requestStatus = .pending
+                                    }
+                                } catch {
+                                    await MainActor.run {
+                                        isProcessing = false
+                                        requestStatus = .failed
 
-                                    // Show error toast
-                                    successMessage = "Failed to send request"
-                                    showSuccessToast = true
-                                    DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-                                        showSuccessToast = false
-                                        requestStatus = .none // Allow retry
+                                        // Show error toast
+                                        successMessage = "Failed to send request"
+                                        showSuccessToast = true
+                                        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                                            showSuccessToast = false
+                                            requestStatus = .none // Allow retry
+                                        }
                                     }
                                 }
                             }
                         }
                     }) {
                         Group {
-                            if isPending || requestStatus == .pending {
-                                HStack(spacing: 6) {
+                            if isFriend {
+                                HStack(spacing: 4) {
+                                    Image(systemName: "person.fill.xmark")
+                                        .font(.caption2)
+                                    Text("Unfriend")
+                                        .font(.caption.bold())
+                                }
+                                .foregroundColor(.white)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 6)
+                                .background(Color.red.opacity(0.8))
+                                .cornerRadius(20)
+                            } else if isPending || requestStatus == .pending {
+                                HStack(spacing: 4) {
                                     Image(systemName: "clock.fill")
-                                        .font(.caption)
+                                        .font(.caption2)
                                     Text("Pending")
-                                        .font(.subheadline.bold())
+                                        .font(.caption.bold())
                                 }
                                 .foregroundColor(.secondary)
-                                .padding(.horizontal, 16)
-                                .padding(.vertical, 8)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 6)
                                 .background(Color.gray.opacity(0.15))
                                 .cornerRadius(20)
                             } else if requestStatus == .failed {
-                                HStack(spacing: 6) {
+                                HStack(spacing: 4) {
                                     Image(systemName: "arrow.clockwise")
+                                        .font(.caption2)
                                     Text("Retry")
-                                        .font(.subheadline.bold())
+                                        .font(.caption.bold())
                                 }
                                 .foregroundColor(.white)
-                                .padding(.horizontal, 16)
-                                .padding(.vertical, 8)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 6)
                                 .background(Color.orange)
                                 .cornerRadius(20)
                             } else {
-                                HStack(spacing: 6) {
+                                HStack(spacing: 4) {
                                     Image(systemName: "person.badge.plus")
+                                        .font(.caption2)
                                     Text("Add")
-                                        .font(.subheadline.bold())
+                                        .font(.caption.bold())
                                 }
                                 .foregroundColor(.white)
-                                .padding(.horizontal, 16)
-                                .padding(.vertical, 8)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 6)
                                 .background(Color.green)
                                 .cornerRadius(20)
                             }
@@ -520,6 +544,37 @@ struct ContactRowUnified: View {
             }
         }
         .padding(.vertical, 4)
+        .alert("Unfriend \(fullName)?", isPresented: $showUnfriendAlert) {
+            Button("Cancel", role: .cancel) {}
+            Button("Unfriend", role: .destructive) {
+                guard let userId = appContact.userId else { return }
+                isProcessing = true
+                Task {
+                    do {
+                        try await contactsManager.unfriend(userId: userId)
+                        await MainActor.run {
+                            isProcessing = false
+                            successMessage = "Removed friend"
+                            showSuccessToast = true
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                                showSuccessToast = false
+                            }
+                        }
+                    } catch {
+                        await MainActor.run {
+                            isProcessing = false
+                            successMessage = "Failed to unfriend"
+                            showSuccessToast = true
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                                showSuccessToast = false
+                            }
+                        }
+                    }
+                }
+            }
+        } message: {
+            Text("Are you sure you want to remove \(fullName) from your friends?")
+        }
     }
 }
 
@@ -535,6 +590,7 @@ class UnifiedFriendsViewModel: ObservableObject {
     private let functions = Functions.functions()
     private var incomingListener: ListenerRegistration?
     private var outgoingListener: ListenerRegistration?
+    private var friendsListener: ListenerRegistration?
 
     struct SimpleFriend: Identifiable {
         let id: String
@@ -580,15 +636,27 @@ class UnifiedFriendsViewModel: ObservableObject {
                 }
             }
 
-        // Load friends (one-time)
-        Task {
-            await loadFriends(userId: userId)
-        }
+        // Listen to friends (real-time)
+        friendsListener = db.collection("friends")
+            .whereField("userId", isEqualTo: userId)
+            .whereField("status", isEqualTo: "active")
+            .addSnapshotListener { [weak self] snapshot, error in
+                guard let self = self else { return }
+                if let error = error {
+                    print("[UnifiedFriends] Error listening to friends: \(error)")
+                    return
+                }
+                guard let documents = snapshot?.documents else { return }
+                Task {
+                    await self.loadFriendsFromDocuments(documents)
+                }
+            }
     }
 
     func stopListening() {
         incomingListener?.remove()
         outgoingListener?.remove()
+        friendsListener?.remove()
     }
 
     private func loadIncomingRequests(_ documents: [QueryDocumentSnapshot]) async {
@@ -646,41 +714,42 @@ class UnifiedFriendsViewModel: ObservableObject {
         print("[UnifiedFriends] ✅ Loaded \(requests.count) outgoing requests")
     }
 
-    private func loadFriends(userId: String) async {
-        do {
-            let snapshot = try await db.collection("friends")
-                .whereField("userId", isEqualTo: userId)
-                .whereField("status", isEqualTo: "active")
-                .getDocuments()
-
-            var friendsList: [SimpleFriend] = []
-            for doc in snapshot.documents {
-                let data = doc.data()
-                guard let friendId = data["friendId"] as? String else { continue }
+    private func loadFriendsFromDocuments(_ documents: [QueryDocumentSnapshot]) async {
+        var friendsList: [SimpleFriend] = []
+        for doc in documents {
+            let data = doc.data()
+            guard let friendId = data["friendId"] as? String else { continue }
+            do {
                 let userDoc = try await db.collection("users").document(friendId).getDocument()
                 let userData = userDoc.data()
                 let displayName = userData?["displayName"] as? String ?? "Unknown"
                 friendsList.append(SimpleFriend(id: friendId, displayName: displayName))
+            } catch {
+                print("[UnifiedFriends] Error fetching friend user data: \(error)")
             }
-            await MainActor.run {
-                self.friends = friendsList
-            }
-        } catch {
-            print("[UnifiedFriends] Error loading friends: \(error)")
+        }
+        await MainActor.run {
+            self.friends = friendsList
+            print("[UnifiedFriends] ✅ Loaded \(friendsList.count) friends")
         }
     }
 
     func acceptRequest(_ request: FriendRequest) async {
         do {
             let callable = functions.httpsCallable("respondToFriendRequest")
-            _ = try await callable.call([
+            let result = try await callable.call([
                 "inviteId": request.id,
                 "accept": true
             ])
+
+            print("[UnifiedFriends] ✅ Friend request accepted: \(result.data)")
+
             await MainActor.run {
                 incomingRequests.removeAll { $0.id == request.id }
                 incomingRequestsCount = incomingRequests.count
             }
+
+            // Friends list will update automatically via real-time listener
         } catch {
             print("[UnifiedFriends] Failed to accept: \(error)")
         }

@@ -20,10 +20,12 @@ class ContactsManager: ObservableObject {
     @Published var permissionStatus: CNAuthorizationStatus = .notDetermined
     @Published var errorMessage: String?
     @Published var outgoingRequestsMap: [String: String] = [:] // recipientUserId -> inviteId
+    @Published var friendsSet: Set<String> = [] // Set of friend userIds
 
     private let contactStore = CNContactStore()
     private let db = Firestore.firestore()
     private var outgoingRequestsListener: ListenerRegistration?
+    private var friendsListener: ListenerRegistration?
 
     init() {
         print("[Contacts] 🔵 ContactsManager initialized")
@@ -31,6 +33,7 @@ class ContactsManager: ObservableObject {
 
     deinit {
         outgoingRequestsListener?.remove()
+        friendsListener?.remove()
     }
 
     func startListeningToOutgoingRequests(currentUserId: String) {
@@ -69,6 +72,85 @@ class ContactsManager: ObservableObject {
     func stopListeningToOutgoingRequests() {
         outgoingRequestsListener?.remove()
         outgoingRequestsListener = nil
+    }
+
+    func startListeningToFriends(currentUserId: String) {
+        print("[Contacts] 🎧 Starting listener for friends")
+
+        // Real-time listener for all friends
+        friendsListener = db.collection("friends")
+            .whereField("userId", isEqualTo: currentUserId)
+            .whereField("status", isEqualTo: "active")
+            .addSnapshotListener { [weak self] snapshot, error in
+                guard let self = self else { return }
+
+                if let error = error {
+                    print("[Contacts] ❌ Error listening to friends: \(error)")
+                    return
+                }
+
+                guard let documents = snapshot?.documents else { return }
+
+                Task { @MainActor in
+                    var friendsSet = Set<String>()
+
+                    for doc in documents {
+                        let data = doc.data()
+                        if let friendId = data["friendId"] as? String {
+                            friendsSet.insert(friendId)
+                        }
+                    }
+
+                    self.friendsSet = friendsSet
+                    print("[Contacts] 📊 Friends updated: \(friendsSet.count) friends")
+                }
+            }
+    }
+
+    func stopListeningToFriends() {
+        friendsListener?.remove()
+        friendsListener = nil
+    }
+
+    func isFriend(userId: String) -> Bool {
+        return friendsSet.contains(userId)
+    }
+
+    func unfriend(userId: String) async throws {
+        guard let currentUserId = Auth.auth().currentUser?.uid else {
+            throw NSError(domain: "ContactsManager", code: -1, userInfo: [NSLocalizedDescriptionKey: "Not authenticated"])
+        }
+
+        print("[Contacts] Unfriending user: \(userId)")
+
+        do {
+            // Find and delete both friendship documents
+            let friendsQuery1 = try await db.collection("friends")
+                .whereField("userId", isEqualTo: currentUserId)
+                .whereField("friendId", isEqualTo: userId)
+                .whereField("status", isEqualTo: "active")
+                .getDocuments()
+
+            let friendsQuery2 = try await db.collection("friends")
+                .whereField("userId", isEqualTo: userId)
+                .whereField("friendId", isEqualTo: currentUserId)
+                .whereField("status", isEqualTo: "active")
+                .getDocuments()
+
+            for doc in friendsQuery1.documents {
+                try await doc.reference.delete()
+            }
+
+            for doc in friendsQuery2.documents {
+                try await doc.reference.delete()
+            }
+
+            print("[Contacts] ✅ Unfriended successfully")
+            // The real-time listener will automatically update friendsSet
+        } catch {
+            print("[Contacts] ❌ Error unfriending: \(error)")
+            throw error
+        }
     }
 
     func checkPermission() {
