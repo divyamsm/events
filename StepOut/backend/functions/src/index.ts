@@ -413,11 +413,8 @@ export const listFeed = onCall(async (request) => {
       const userSnap = await db.collection("users").doc(friendId).get();
       if (!userSnap.exists) return null;
       const userData = userSnap.data() ?? {};
-      // Convert Firebase Auth UID to deterministic UUID format
-      const uidHex = Buffer.from(friendId, 'utf8').toString('hex').padEnd(32, '0').substring(0, 32);
-      const uuidStr = `${uidHex.substring(0, 8)}-${uidHex.substring(8, 12)}-${uidHex.substring(12, 16)}-${uidHex.substring(16, 20)}-${uidHex.substring(20, 32)}`;
       return {
-        id: uuidStr.toUpperCase(),
+        id: userData.id ?? friendId,  // Use UUID from user document
         displayName: userData.displayName ?? "Friend",
         photoURL: userData.photoURL ?? null
       };
@@ -703,18 +700,32 @@ export const listAttendedEvents = onCall(async (request) => {
 // ===========================
 
 export const shareEvent = onCall(async (request) => {
-  // Require authentication - senderId must match authenticated user
+  // Require authentication
   const authUid = requireAuth(request);
   const payload = parseRequest(shareEventSchema, request.data);
-
-  // Verify senderId matches authenticated user
-  if (payload.senderId !== authUid) {
-    throw new HttpsError("permission-denied", "SenderId must match authenticated user");
-  }
 
   console.log("[Function] shareEvent payload", payload, "authUid:", authUid);
 
   try {
+    // Convert recipient UUIDs to Firebase Auth UIDs
+    // Query all users and build UUID -> authUid mapping from user documents
+    const usersSnap = await db.collection("users").get();
+    const uuidToAuthUid = new Map<string, string>();
+
+    usersSnap.docs.forEach((doc) => {
+      const userData = doc.data();
+      if (userData.id) {
+        uuidToAuthUid.set(userData.id, doc.id);  // Map UUID -> Firebase Auth UID
+      }
+    });
+
+    // Convert recipient UUIDs to Firebase Auth UIDs
+    const recipientAuthUids = payload.recipientIds
+      .map(uuid => uuidToAuthUid.get(uuid))
+      .filter((uid): uid is string => uid !== undefined);
+
+    console.log("[Function] shareEvent converted", { uuidCount: payload.recipientIds.length, authUidCount: recipientAuthUids.length });
+
     // Verify event exists
     const eventRef = db.collection("events").doc(payload.eventId);
     const eventSnap = await eventRef.get();
@@ -727,7 +738,7 @@ export const shareEvent = onCall(async (request) => {
     const currentShared = (eventData?.sharedInviteFriendIds as string[]) || [];
 
     // Merge with new recipients (deduplicate)
-    const updatedShared = Array.from(new Set([...currentShared, ...payload.recipientIds]));
+    const updatedShared = Array.from(new Set([...currentShared, ...recipientAuthUids]));
 
     // Update event with new shared list
     await eventRef.update({
@@ -736,15 +747,15 @@ export const shareEvent = onCall(async (request) => {
     });
 
     // Get sender information for notification
-    const senderSnap = await db.collection("users").doc(payload.senderId).get();
+    const senderSnap = await db.collection("users").doc(authUid).get();
     const senderData = senderSnap.data();
     const senderName = senderData?.displayName ?? "Someone";
 
     // Send push notifications to new recipients
-    const newRecipientIds = payload.recipientIds.filter(id => !currentShared.includes(id));
+    const newRecipientAuthUids = recipientAuthUids.filter(id => !currentShared.includes(id));
 
-    if (newRecipientIds.length > 0) {
-      const recipientPromises = newRecipientIds.map(async (recipientId) => {
+    if (newRecipientAuthUids.length > 0) {
+      const recipientPromises = newRecipientAuthUids.map(async (recipientId) => {
         try {
           const recipientSnap = await db.collection("users").doc(recipientId).get();
           if (!recipientSnap.exists) return;
@@ -770,7 +781,7 @@ export const shareEvent = onCall(async (request) => {
             data: {
               type: "event_invite",
               eventId: payload.eventId,
-              senderId: payload.senderId,
+              senderId: authUid,
               senderName: senderName
             },
             tokens: pushTokens
@@ -806,7 +817,7 @@ export const shareEvent = onCall(async (request) => {
       eventId: payload.eventId,
       newRecipients: payload.recipientIds.length,
       totalShared: updatedShared.length,
-      notificationsSent: newRecipientIds.length
+      notificationsSent: newRecipientAuthUids.length
     });
 
     return {
