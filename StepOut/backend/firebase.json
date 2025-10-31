@@ -1,10 +1,7 @@
 {
   "functions": {
     "source": "functions",
-    "runtime": "nodejs18",
-    "build": {
-      "command": "npm run build"
-    }
+    "runtime": "nodejs20"
   },
   "emulators": {
     "functions": {

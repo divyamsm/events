@@ -193,6 +193,7 @@ export interface EventMemberDoc {
 
 export const feedQuerySchema = z
   .object({
+    userId: z.string(),
     limit: z.number().int().positive().max(50).default(20),
     startAfter: z.string().optional(),
     visibility: z.enum(visibilityValues).optional(),

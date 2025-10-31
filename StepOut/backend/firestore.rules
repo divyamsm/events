@@ -66,6 +66,24 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    match /friends/{friendId} {
+      // Users can read their own friendships
+      allow read: if isSignedIn()
+        && (resource.data.userId == request.auth.uid
+          || resource.data.friendId == request.auth.uid);
+
+      // Only backend functions can create friendships (via respondToFriendRequest)
+      allow create: if false;
+
+      // Users can delete friendships they're part of (unfriend)
+      allow delete: if isSignedIn()
+        && (resource.data.userId == request.auth.uid
+          || resource.data.friendId == request.auth.uid);
+
+      // Updates not allowed (status changes should go through functions)
+      allow update: if false;
+    }
+
     match /widgetSnapshots/{userId} {
       allow read, write: if isOwner(userId);
     }

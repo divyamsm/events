@@ -315,16 +315,24 @@ export const listFeed = onCall(async (request) => {
     .where("canceled", "==", false)
     .orderBy("startAt", "desc");
 
+  // Query 4: Events shared with user by friends
+  let sharedQuery = db
+    .collection("events")
+    .where("sharedInviteFriendIds", "array-contains", authUid)
+    .where("canceled", "==", false)
+    .orderBy("startAt", "desc");
+
   // Execute all queries in parallel
-  const [ownedSnap, publicSnap, invitedSnap] = await Promise.all([
+  const [ownedSnap, publicSnap, invitedSnap, sharedSnap] = await Promise.all([
     ownedQuery.limit(queryParams.limit).get(),
     publicQuery.limit(queryParams.limit).get(),
-    invitedQuery.limit(queryParams.limit).get()
+    invitedQuery.limit(queryParams.limit).get(),
+    sharedQuery.limit(queryParams.limit).get()
   ]);
 
   // Combine and deduplicate events
   const eventMap = new Map();
-  const allSnaps = [...ownedSnap.docs, ...publicSnap.docs, ...invitedSnap.docs];
+  const allSnaps = [...ownedSnap.docs, ...publicSnap.docs, ...invitedSnap.docs, ...sharedSnap.docs];
 
   allSnaps.forEach(doc => {
     if (!eventMap.has(doc.id)) {
@@ -387,19 +395,29 @@ export const listFeed = onCall(async (request) => {
   let friendsList: Array<{ id: string; displayName: string; photoURL: string | null }> = [];
 
   if (authUid) {
+    console.log(`[Function] listFeed querying friends for authUid: ${authUid}`);
+
     const friendsQuery = await db.collection("friends")
       .where("userId", "==", authUid)
       .where("status", "==", "active")
       .get();
 
-    const friendIds = friendsQuery.docs.map(doc => (doc.data() as any).friendId);
+    console.log(`[Function] listFeed found ${friendsQuery.docs.length} friend docs`);
+    const friendIds = friendsQuery.docs.map(doc => {
+      const data = doc.data();
+      console.log(`[Function] listFeed friend doc:`, data);
+      return (data as any).friendId;
+    });
 
     const friendPromises = friendIds.map(async (friendId) => {
       const userSnap = await db.collection("users").doc(friendId).get();
       if (!userSnap.exists) return null;
       const userData = userSnap.data() ?? {};
+      // Convert Firebase Auth UID to deterministic UUID format
+      const uidHex = Buffer.from(friendId, 'utf8').toString('hex').padEnd(32, '0').substring(0, 32);
+      const uuidStr = `${uidHex.substring(0, 8)}-${uidHex.substring(8, 12)}-${uidHex.substring(12, 16)}-${uidHex.substring(16, 20)}-${uidHex.substring(20, 32)}`;
       return {
-        id: friendId,
+        id: uuidStr.toUpperCase(),
         displayName: userData.displayName ?? "Friend",
         photoURL: userData.photoURL ?? null
       };
@@ -407,27 +425,10 @@ export const listFeed = onCall(async (request) => {
 
     const friendDocs = await Promise.all(friendPromises);
     friendsList = friendDocs.filter((doc): doc is { id: string; displayName: string; photoURL: string | null } => doc !== null);
+    console.log(`[Function] listFeed found ${friendsList.length} friends after fetching user data`);
   }
 
-  // If no friends found or user not authenticated, include attendees as fallback
-  if (friendsList.length === 0) {
-    const friendDocs = await Promise.all(
-      Array.from(attendeeIds).map(async (friendId) => {
-        const snap = await db.collection("users").doc(friendId).get();
-        if (!snap.exists) {
-          return null;
-        }
-        const userData = snap.data() ?? {};
-        return {
-          id: friendId,
-          displayName: userData.displayName ?? "Friend",
-          photoURL: userData.photoURL ?? null
-        };
-      })
-    );
-    friendsList = friendDocs.filter((doc): doc is { id: string; displayName: string; photoURL: string | null } => doc !== null);
-  }
-
+  console.log(`[Function] listFeed returning ${events.length} events and ${friendsList.length} friends`);
   return { events, friends: friendsList };
 });
 
@@ -734,10 +735,78 @@ export const shareEvent = onCall(async (request) => {
       updatedAt: Timestamp.now()
     });
 
+    // Get sender information for notification
+    const senderSnap = await db.collection("users").doc(payload.senderId).get();
+    const senderData = senderSnap.data();
+    const senderName = senderData?.displayName ?? "Someone";
+
+    // Send push notifications to new recipients
+    const newRecipientIds = payload.recipientIds.filter(id => !currentShared.includes(id));
+
+    if (newRecipientIds.length > 0) {
+      const recipientPromises = newRecipientIds.map(async (recipientId) => {
+        try {
+          const recipientSnap = await db.collection("users").doc(recipientId).get();
+          if (!recipientSnap.exists) return;
+
+          const recipientData = recipientSnap.data();
+          const pushTokens = recipientData?.pushTokens ?? [];
+
+          if (pushTokens.length === 0) {
+            console.log(`[Function] shareEvent: No push tokens for recipient ${recipientId}`);
+            return;
+          }
+
+          const eventTitle = eventData?.title ?? "an event";
+          const eventDate = eventData?.startAt instanceof Timestamp
+            ? eventData.startAt.toDate().toLocaleDateString()
+            : "soon";
+
+          const message = {
+            notification: {
+              title: `${senderName} invited you to an event`,
+              body: `${eventTitle} on ${eventDate}`
+            },
+            data: {
+              type: "event_invite",
+              eventId: payload.eventId,
+              senderId: payload.senderId,
+              senderName: senderName
+            },
+            tokens: pushTokens
+          };
+
+          const response = await admin.messaging().sendEachForMulticast(message);
+          console.log(`[Function] shareEvent: Sent ${response.successCount} notifications to ${recipientId}`);
+
+          if (response.failureCount > 0) {
+            const failedTokens: string[] = [];
+            response.responses.forEach((resp, idx) => {
+              if (!resp.success) {
+                failedTokens.push(pushTokens[idx]);
+              }
+            });
+
+            // Remove invalid tokens
+            if (failedTokens.length > 0) {
+              await db.collection("users").doc(recipientId).update({
+                pushTokens: pushTokens.filter((token: string) => !failedTokens.includes(token))
+              });
+            }
+          }
+        } catch (error) {
+          console.error(`[Function] shareEvent: Failed to send notification to ${recipientId}`, error);
+        }
+      });
+
+      await Promise.all(recipientPromises);
+    }
+
     console.log("[Function] shareEvent success", {
       eventId: payload.eventId,
       newRecipients: payload.recipientIds.length,
-      totalShared: updatedShared.length
+      totalShared: updatedShared.length,
+      notificationsSent: newRecipientIds.length
     });
 
     return {
