@@ -60,12 +60,12 @@ final class EventFeedViewModel: ObservableObject {
     private let backend: EventBackend
     private var session: UserSession
     private let appState: AppState
-    private var friendsCatalog: [Friend] = EventRepository.friends
+    private var friendsCatalog: [Friend] = []
     private var latestEvents: [Event] = []
     private var authObserver: NSObjectProtocol?
 
     var friendOptions: [Friend] {
-        friendsCatalog.isEmpty ? EventRepository.friends : friendsCatalog
+        friendsCatalog
     }
 
     init(backend: EventBackend, session: UserSession, appState: AppState) {
@@ -103,12 +103,30 @@ final class EventFeedViewModel: ObservableObject {
             let snapshot = try await backend.fetchFeed(for: session.user, near: session.currentLocation)
             friendsCatalog = snapshot.friends
 
-            var combinedEvents = appState.createdEvents
-            for event in snapshot.events where combinedEvents.contains(where: { $0.id == event.id }) == false {
+            // Only log for events we're debugging
+            for event in snapshot.events where event.title.contains("Bharath") {
+                print("[EventFeedViewModel] 🔍 Event: \(event.title) (ID: \(event.id))")
+                print("[EventFeedViewModel] 🔍   sharedInviteFriendIDs: \(event.sharedInviteFriendIDs)")
+            }
+
+            // Build a lookup of backend events by ID
+            let backendEventLookup = Dictionary(uniqueKeysWithValues: snapshot.events.map { ($0.id, $0) })
+            let createdIDs = Set(appState.createdEvents.map { $0.id })
+
+            // Merge: Prefer backend data for existing events, keep local-only events
+            var combinedEvents: [Event] = []
+
+            // First, add all backend events (updates existing ones with fresh data)
+            for event in snapshot.events {
                 combinedEvents.append(event)
             }
 
-            let createdIDs = Set(appState.createdEvents.map { $0.id })
+            // Then, add local events that don't exist in backend
+            for localEvent in appState.createdEvents {
+                if backendEventLookup[localEvent.id] == nil {
+                    combinedEvents.append(localEvent)
+                }
+            }
 
             latestEvents = combinedEvents.map { event in
                 var mutable = event
@@ -133,8 +151,11 @@ final class EventFeedViewModel: ObservableObject {
     }
 
     func beginShare(for feedEvent: FeedEvent) {
+        print("[EventFeedViewModel] beginShare called. friendsCatalog count: \(friendsCatalog.count), names: \(friendsCatalog.map { $0.name })")
         var available = friendsCatalog.filter { $0.id != session.user.id }
+        print("[EventFeedViewModel] After filtering self: \(available.count)")
         available.removeAll(where: { feedEvent.event.sharedInviteFriendIDs.contains($0.id) })
+        print("[EventFeedViewModel] After filtering already shared: \(available.count), names: \(available.map { $0.name })")
         shareContext = ShareContext(feedEvent: feedEvent, availableFriends: available)
     }
 
@@ -448,12 +469,21 @@ final class EventFeedViewModel: ObservableObject {
             let invitedMe = invitedMeIDs.map { resolveFriend(for: $0, in: event, lookup: friendLookup) }
             let invitedByMe = invitedByMeIDs.map { resolveFriend(for: $0, in: event, lookup: friendLookup) }
 
-            var badges: [FeedEvent.FriendBadge] =
-                invitedMe.map { FeedEvent.FriendBadge(id: $0.id, friend: $0, role: .invitedMe) } +
-                attending.filter { friend in invitedMe.contains(where: { $0.id == friend.id }) == false }
-                    .map { FeedEvent.FriendBadge(id: $0.id, friend: $0, role: .going) } +
-                invitedByMe.filter { friend in invitedMe.contains(where: { $0.id == friend.id }) == false }
-                    .map { FeedEvent.FriendBadge(id: $0.id, friend: $0, role: .invitedByMe) }
+            let invitedMeBadges = invitedMe.map { FeedEvent.FriendBadge(id: $0.id, friend: $0, role: .invitedMe) }
+            let attendingBadges = attending.filter { friend in invitedMe.contains(where: { $0.id == friend.id }) == false }
+                .map { FeedEvent.FriendBadge(id: $0.id, friend: $0, role: .going) }
+            let invitedByMeBadges = invitedByMe.filter { friend in invitedMe.contains(where: { $0.id == friend.id }) == false }
+                .map { FeedEvent.FriendBadge(id: $0.id, friend: $0, role: .invitedByMe) }
+
+            var badges: [FeedEvent.FriendBadge] = invitedMeBadges + attendingBadges + invitedByMeBadges
+
+            // Only log for events we're debugging
+            if event.title.contains("Bharath") {
+                print("[EventFeedViewModel] 🔍 Building badges for: \(event.title)")
+                print("[EventFeedViewModel] 🔍   invitedByMeIDs: \(invitedByMeIDs)")
+                print("[EventFeedViewModel] 🔍   invitedByMe friends: \(invitedByMe.map { $0.name })")
+                print("[EventFeedViewModel] 🔍   invitedByMeBadges count: \(invitedByMeBadges.count)")
+            }
 
             // Skip host badge for now since ownerId is Firebase UID (String), not UUID
             // TODO: Resolve Firebase UID to Friend
@@ -474,6 +504,12 @@ final class EventFeedViewModel: ObservableObject {
 
             let distance = event.distance(from: session.currentLocation)
             let attendingCount = max(attendingIDs.count, badges.filter { $0.role == .going || $0.role == .me }.count)
+
+            // Only log for events we're debugging
+            if event.title.contains("Bharath") {
+                print("[EventFeedViewModel] 🔍 FINAL badges count: \(badges.count)")
+                print("[EventFeedViewModel] 🔍 FINAL badges: \(badges.map { "\($0.friend.name) (\($0.role))" })")
+            }
 
             return FeedEvent(
                 event: event,

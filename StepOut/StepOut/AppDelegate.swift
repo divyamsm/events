@@ -9,8 +9,11 @@ import FirebaseAuth
 #if canImport(FirebaseMessaging)
 import FirebaseMessaging
 #endif
+#if canImport(FirebaseFirestore)
+import FirebaseFirestore
+#endif
 
-final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
+final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate, MessagingDelegate {
     func application(_ application: UIApplication,
                      didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
         print("[AppDelegate] 🔴 didFinishLaunchingWithOptions START")
@@ -21,6 +24,12 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
             FirebaseApp.configure()
             print("[AppDelegate] 🟢 Firebase configured")
         }
+#endif
+
+#if canImport(FirebaseMessaging)
+        // Set FCM messaging delegate
+        Messaging.messaging().delegate = self
+        print("[AppDelegate] 🟢 FCM messaging delegate set")
 #endif
 
         // Request notification permissions and register for APNs
@@ -48,11 +57,11 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
                      didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
         print("[AppDelegate] 🟢 Got APNs device token!")
 
-        // NOTE: We're using email authentication now, not phone auth
-        // So we don't need to set APNs token for Firebase Auth
-        // If you need push notifications for other features, configure them here
-
-        print("[AppDelegate] ✅ APNs token received (not configured for email auth)")
+#if canImport(FirebaseMessaging)
+        // Set APNs token for FCM
+        Messaging.messaging().apnsToken = deviceToken
+        print("[AppDelegate] ✅ APNs token set for FCM")
+#endif
     }
 
     func application(_ application: UIApplication,
@@ -135,5 +144,35 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         print("[AppDelegate] 🟡 Firebase Auth did NOT handle this notification")
 #endif
         completionHandler()
+    }
+
+    // MARK: MessagingDelegate
+
+    func messaging(_ messaging: Messaging, didReceiveRegistrationToken fcmToken: String?) {
+        print("[AppDelegate] 🟢 FCM registration token: \(fcmToken ?? "nil")")
+
+        guard let fcmToken = fcmToken else {
+            print("[AppDelegate] ❌ No FCM token received")
+            return
+        }
+
+#if canImport(FirebaseAuth) && canImport(FirebaseFirestore)
+        // Store token in Firestore for the current user
+        guard let uid = Auth.auth().currentUser?.uid else {
+            print("[AppDelegate] 🟡 No user logged in, token will be saved on next login")
+            return
+        }
+
+        let db = Firestore.firestore()
+        db.collection("users").document(uid).setData([
+            "pushTokens": FieldValue.arrayUnion([fcmToken])
+        ], merge: true) { error in
+            if let error = error {
+                print("[AppDelegate] ❌ Error saving FCM token: \(error.localizedDescription)")
+            } else {
+                print("[AppDelegate] ✅ FCM token saved to Firestore for user: \(uid)")
+            }
+        }
+#endif
     }
 }

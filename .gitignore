@@ -102,3 +102,5 @@ StepOut/backend/check_user.js
 StepOut/backend/tools/check*.js
 backend/check_user.js
 backend/tools/check*.js
+**/node_modules/**
+

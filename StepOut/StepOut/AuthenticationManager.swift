@@ -7,6 +7,9 @@ import FirebaseAuth
 #if canImport(FirebaseFirestore)
 import FirebaseFirestore
 #endif
+#if canImport(FirebaseMessaging)
+import FirebaseMessaging
+#endif
 
 @MainActor
 final class AuthenticationManager: ObservableObject {
@@ -99,6 +102,9 @@ final class AuthenticationManager: ObservableObject {
             currentSession = UserSession(user: friend, currentLocation: location, firebaseUID: user.uid)
 
             print("[Auth] ✅ Created session for user: \(user.uid), name: \(displayName)")
+
+            // Register FCM token after successful login
+            await registerFCMToken(for: user.uid)
         } catch {
             print("[Auth] ⚠️ Error fetching user profile: \(error)")
 
@@ -116,6 +122,9 @@ final class AuthenticationManager: ObservableObject {
             currentSession = UserSession(user: friend, currentLocation: location, firebaseUID: user.uid)
 
             print("[Auth] ✅ Created fallback session for user: \(user.uid)")
+
+            // Register FCM token after successful login
+            await registerFCMToken(for: user.uid)
         }
         #else
         // For preview/testing without Firebase
@@ -157,5 +166,24 @@ final class AuthenticationManager: ObservableObject {
                                hash & 0xFFFFFFFFFFFF)
 
         return UUID(uuidString: uuidString) ?? UUID()
+    }
+
+    // Register FCM token for push notifications
+    private func registerFCMToken(for uid: String) async {
+        #if canImport(FirebaseMessaging) && canImport(FirebaseFirestore)
+        do {
+            let fcmToken = try await Messaging.messaging().token()
+            print("[Auth] 🟢 Got FCM token: \(fcmToken)")
+
+            let db = Firestore.firestore()
+            try await db.collection("users").document(uid).setData([
+                "pushTokens": FieldValue.arrayUnion([fcmToken])
+            ], merge: true)
+
+            print("[Auth] ✅ FCM token registered for user: \(uid)")
+        } catch {
+            print("[Auth] ❌ Error registering FCM token: \(error.localizedDescription)")
+        }
+        #endif
     }
 }

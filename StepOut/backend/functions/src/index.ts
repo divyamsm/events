@@ -342,6 +342,17 @@ export const listFeed = onCall(async (request) => {
 
   const snap = { docs: Array.from(eventMap.values()) };
   const attendeeIds = new Set<string>();
+
+  // Build reverse mapping: Firebase Auth UID -> UUID
+  const authUidToUuid = new Map<string, string>();
+  const allUsersSnap = await db.collection("users").get();
+  allUsersSnap.docs.forEach((userDoc) => {
+    const userData = userDoc.data();
+    if (userData.id) {
+      authUidToUuid.set(userDoc.id, userData.id);  // Map Firebase Auth UID -> UUID
+    }
+  });
+
   const events = await Promise.all(
     snap.docs.map(async (doc) => {
       const data = doc.data();
@@ -369,7 +380,13 @@ export const listFeed = onCall(async (request) => {
 
       attendeeIds.add(data.ownerId);
 
-      return {
+      // Convert sharedInviteFriendIds from Firebase Auth UIDs back to UUIDs for iOS
+      const sharedAuthUids = (data.sharedInviteFriendIds as string[]) ?? [];
+      const sharedUuids = sharedAuthUids
+        .map(authUid => authUidToUuid.get(authUid))
+        .filter((uuid): uuid is string => uuid !== undefined);
+
+      const eventResponse = {
         id: doc.id,
         title: data.title,
         location: data.location,
@@ -381,10 +398,16 @@ export const listFeed = onCall(async (request) => {
         attending,
         attendingFriendIds,
         invitedFriendIds: data.invitedFriendIds ?? [],
-        sharedInviteFriendIds: data.sharedInviteFriendIds ?? [],
+        sharedInviteFriendIds: sharedUuids,  // Send UUIDs, not Firebase Auth UIDs
         arrivalTimes,
         geo: data.geo ?? null
       };
+
+      if (data.title === "Bharath") {
+        console.log("[Function] listFeed 🔍 Bharath event:", JSON.stringify(eventResponse, null, 2));
+      }
+
+      return eventResponse;
     })
   );
 
@@ -455,15 +478,15 @@ export const rsvpEvent = onCall(async (request) => {
     { merge: true }
   );
 
-  // Add user to chat if status is "going"
-  if (payload.status === "going") {
-    const chatRef = db.collection("chats").doc(eventSnap.id);
-    const chatSnap = await chatRef.get();
+  // Manage chat access based on RSVP status
+  const chatRef = db.collection("chats").doc(eventSnap.id);
+  const chatSnap = await chatRef.get();
 
-    if (chatSnap.exists) {
-      const chatData = chatSnap.data() as schema.ChatDoc;
+  if (chatSnap.exists) {
+    const chatData = chatSnap.data() as schema.ChatDoc;
 
-      // Add user to participants if not already there
+    if (payload.status === "going") {
+      // Add user to chat participants if not already there
       if (!chatData.participantIds.includes(uid)) {
         await chatRef.update({
           participantIds: admin.firestore.FieldValue.arrayUnion(uid)
@@ -494,6 +517,44 @@ export const rsvpEvent = onCall(async (request) => {
           lastMessageSenderId: "system",
           lastMessageSenderName: "System"
         });
+      }
+    } else {
+      // Remove user from chat participants if changing to "not going" or "maybe"
+      if (chatData.participantIds.includes(uid)) {
+        await chatRef.update({
+          participantIds: admin.firestore.FieldValue.arrayRemove(uid)
+        });
+
+        // Get user info for system message
+        const userSnap = await db.collection("users").doc(uid).get();
+        const userData = userSnap.data() as schema.UserDoc | undefined;
+        const userName = userData?.displayName ?? "A user";
+
+        // Send system message
+        const messageRef = chatRef.collection("messages").doc();
+        const systemMessage: schema.MessageDoc = {
+          messageId: messageRef.id,
+          senderId: "system",
+          senderName: "System",
+          senderPhotoURL: null,
+          text: `${userName} left the event`,
+          createdAt: now,
+          type: "system"
+        };
+        await messageRef.set(systemMessage);
+
+        // Update chat metadata
+        await chatRef.update({
+          lastMessageAt: now,
+          lastMessageText: systemMessage.text,
+          lastMessageSenderId: "system",
+          lastMessageSenderName: "System"
+        });
+
+        // Remove unread count for this user
+        const newUnreadCounts = { ...chatData.unreadCounts };
+        delete newUnreadCounts[uid];
+        await chatRef.update({ unreadCounts: newUnreadCounts });
       }
     }
   }
@@ -1167,6 +1228,13 @@ export const sendMessage = onCall(async (request) => {
       throw new HttpsError("permission-denied", "You are not a participant in this chat");
     }
 
+    // Double-check: Verify user has RSVP'd as "going" to the event
+    const eventRef = db.collection("events").doc(chatData.eventId);
+    const memberDoc = await eventRef.collection("members").doc(authUid).get();
+    if (!memberDoc.exists || memberDoc.data()?.status !== "going") {
+      throw new HttpsError("permission-denied", "You must RSVP as 'going' to access this chat");
+    }
+
     // Get sender info
     const userRef = db.collection("users").doc(authUid);
     const userSnap = await userRef.get();
@@ -1243,6 +1311,13 @@ export const getMessages = onCall(async (request) => {
     // Verify user is a participant
     if (!chatData.participantIds.includes(authUid)) {
       throw new HttpsError("permission-denied", "You are not a participant in this chat");
+    }
+
+    // Double-check: Verify user has RSVP'd as "going" to the event
+    const eventRef = db.collection("events").doc(chatData.eventId);
+    const memberDoc = await eventRef.collection("members").doc(authUid).get();
+    if (!memberDoc.exists || memberDoc.data()?.status !== "going") {
+      throw new HttpsError("permission-denied", "You must RSVP as 'going' to access this chat");
     }
 
     // Query messages
