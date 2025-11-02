@@ -86,8 +86,11 @@ final class AuthenticationManager: ObservableObject {
             let photoURLString = doc.data()?["photoURL"] as? String
             let photoURL = photoURLString.flatMap { URL(string: $0) }
 
-            // Convert Firebase UID to UUID by hashing it
-            let uuid = uuidFromFirebaseUID(user.uid)
+            // Read UUID from Firestore, or generate fallback if missing
+            let uuidString = doc.data()?["id"] as? String
+            let uuid = uuidString.flatMap { UUID(uuidString: $0) } ?? uuidFromFirebaseUID(user.uid)
+
+            print("[Auth] 🔍 User UUID from Firestore: \(uuidString ?? "nil"), using: \(uuid)")
 
             let friend = Friend(
                 id: uuid,

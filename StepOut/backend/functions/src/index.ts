@@ -386,6 +386,20 @@ export const listFeed = onCall(async (request) => {
         .map(authUid => authUidToUuid.get(authUid))
         .filter((uuid): uuid is string => uuid !== undefined);
 
+      // Convert attendingFriendIds from Firebase Auth UIDs back to UUIDs for iOS
+      const attendingUuids = attendingFriendIds
+        .map(authUid => authUidToUuid.get(authUid))
+        .filter((uuid): uuid is string => uuid !== undefined);
+
+      // Convert arrivalTimes keys from Firebase Auth UIDs to UUIDs
+      const arrivalTimesUuids: Record<string, number> = {};
+      for (const [authUid, time] of Object.entries(arrivalTimes)) {
+        const uuid = authUidToUuid.get(authUid);
+        if (uuid) {
+          arrivalTimesUuids[uuid] = time;
+        }
+      }
+
       const eventResponse = {
         id: doc.id,
         title: data.title,
@@ -396,15 +410,17 @@ export const listFeed = onCall(async (request) => {
         visibility: data.visibility,
         ownerId: data.ownerId,
         attending,
-        attendingFriendIds,
+        attendingFriendIds: attendingUuids,  // Send UUIDs, not Firebase Auth UIDs
         invitedFriendIds: data.invitedFriendIds ?? [],
         sharedInviteFriendIds: sharedUuids,  // Send UUIDs, not Firebase Auth UIDs
-        arrivalTimes,
+        arrivalTimes: arrivalTimesUuids,  // Send UUIDs as keys, not Firebase Auth UIDs
         geo: data.geo ?? null
       };
 
-      if (data.title === "Bharath") {
-        console.log("[Function] listFeed 🔍 Bharath event:", JSON.stringify(eventResponse, null, 2));
+      if (data.title === "Bharath" || data.title === "Bharath 2") {
+        console.log("[Function] listFeed 🔍 Event:", JSON.stringify(eventResponse, null, 2));
+        console.log("[Function] listFeed 🔍 Raw attendingFriendIds (Auth UIDs):", attendingFriendIds);
+        console.log("[Function] listFeed 🔍 Converted attendingUuids:", attendingUuids);
       }
 
       return eventResponse;

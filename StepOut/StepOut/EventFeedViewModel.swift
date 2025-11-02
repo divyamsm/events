@@ -106,6 +106,7 @@ final class EventFeedViewModel: ObservableObject {
             // Only log for events we're debugging
             for event in snapshot.events where event.title.contains("Bharath") {
                 print("[EventFeedViewModel] 🔍 Event: \(event.title) (ID: \(event.id))")
+                print("[EventFeedViewModel] 🔍   attendingFriendIDs: \(event.attendingFriendIDs)")
                 print("[EventFeedViewModel] 🔍   sharedInviteFriendIDs: \(event.sharedInviteFriendIDs)")
             }
 
@@ -128,16 +129,8 @@ final class EventFeedViewModel: ObservableObject {
                 }
             }
 
-            latestEvents = combinedEvents.map { event in
-                var mutable = event
-                if appState.attendingEventIDs.contains(event.id),
-                   mutable.attendingFriendIDs.contains(session.user.id) == false {
-                    mutable.attendingFriendIDs.append(session.user.id)
-                } else if appState.attendingEventIDs.contains(event.id) == false {
-                    mutable.attendingFriendIDs.removeAll(where: { $0 == session.user.id })
-                }
-                return mutable
-            }
+            // Backend is source of truth for attendingFriendIDs - no need to manipulate locally
+            latestEvents = combinedEvents
 
             appState.createdEvents = latestEvents.filter { createdIDs.contains($0.id) }
 
@@ -494,7 +487,8 @@ final class EventFeedViewModel: ObservableObject {
             //     }
             // }
 
-            let isAttending = appState.attendingEventIDs.contains(event.id)
+            // Determine if user is attending from backend data, not local state
+            let isAttending = event.attendingFriendIDs.contains(session.user.id)
             if isAttending {
                 let meBadge = FeedEvent.FriendBadge(id: session.user.id, friend: session.user, role: .me)
                 if badges.contains(where: { $0.friend.id == meBadge.friend.id }) == false {

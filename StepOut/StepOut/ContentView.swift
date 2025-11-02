@@ -1550,16 +1550,18 @@ private struct CreateEventView: View {
                 Section(header: Text("Details")) {
                     TextField("Event name", text: $title)
 
-                    // Location field with search button
-                    HStack {
-                        TextField("Location", text: $location)
-                        Button(action: { showLocationSearch = true }) {
+                    // Location field - tap to search
+                    Button(action: { showLocationSearch = true }) {
+                        HStack {
+                            Text(location.isEmpty ? "Location" : location)
+                                .foregroundColor(location.isEmpty ? Color(uiColor: .placeholderText) : .primary)
+                                .frame(maxWidth: .infinity, alignment: .leading)
                             Image(systemName: "magnifyingglass")
                                 .foregroundColor(.blue)
                                 .font(.body.weight(.medium))
                         }
-                        .buttonStyle(.plain)
                     }
+                    .buttonStyle(.plain)
 
                     DatePicker("Start time", selection: $eventDate, displayedComponents: [.date, .hourAndMinute])
                     DatePicker("End time", selection: $eventEndDate, displayedComponents: [.date, .hourAndMinute])
