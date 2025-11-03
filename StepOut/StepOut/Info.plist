@@ -64,5 +64,7 @@
 	</array>
 	<key>NSContactsUsageDescription</key>
 	<string>StepOut - Events &amp; Friends needs access to your contacts to help you find friends who are already using the app and invite others to join.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>StepOut needs permission to save event photos to your photo library.</string>
 </dict>
 </plist>
