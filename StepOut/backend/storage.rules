@@ -10,6 +10,11 @@ service firebase.storage {
       allow write: if isSignedIn();
     }
 
+    match /event_photos/{eventId}/{photoId} {
+      allow read: if true; // event photos are public
+      allow write: if isSignedIn(); // any signed-in user can upload photos
+    }
+
     match /user-media/{userId}/{fileName} {
       allow read: if true;
       allow write: if isSignedIn() && request.auth.uid == userId;

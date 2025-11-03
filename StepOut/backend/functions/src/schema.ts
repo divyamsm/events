@@ -328,3 +328,77 @@ export interface MessageDoc {
   createdAt: Timestamp;
   type: "text" | "system";
 }
+
+// Event Photos
+export const uploadPhotoSchema = z.object({
+  eventId: z.string().min(1),
+  photoURL: z.string().url(),
+  caption: z.string().max(500).optional().nullable()
+});
+
+export type UploadPhotoPayload = z.infer<typeof uploadPhotoSchema>;
+
+export const listPhotosSchema = z.object({
+  eventId: z.string().min(1),
+  limit: z.number().int().positive().max(100).optional(),
+  before: z.coerce.date().optional()
+}).transform((value) => ({
+  ...value,
+  limit: value.limit ?? 30
+}));
+
+export type ListPhotosPayload = z.infer<typeof listPhotosSchema>;
+
+export const deletePhotoSchema = z.object({
+  eventId: z.string().min(1),
+  photoId: z.string().min(1)
+});
+
+export type DeletePhotoPayload = z.infer<typeof deletePhotoSchema>;
+
+export interface EventPhotoDoc {
+  photoId: string;
+  eventId: string;
+  userId: string;
+  userName: string;
+  userPhotoURL?: string | null;
+  photoURL: string;
+  caption?: string | null;
+  createdAt: Timestamp;
+}
+
+// Event Comments
+export const postCommentSchema = z.object({
+  eventId: z.string().min(1),
+  text: z.string().min(1).max(1000)
+});
+
+export type PostCommentPayload = z.infer<typeof postCommentSchema>;
+
+export const listCommentsSchema = z.object({
+  eventId: z.string().min(1),
+  limit: z.number().int().positive().max(100).optional(),
+  before: z.coerce.date().optional()
+}).transform((value) => ({
+  ...value,
+  limit: value.limit ?? 50
+}));
+
+export type ListCommentsPayload = z.infer<typeof listCommentsSchema>;
+
+export const deleteCommentSchema = z.object({
+  eventId: z.string().min(1),
+  commentId: z.string().min(1)
+});
+
+export type DeleteCommentPayload = z.infer<typeof deleteCommentSchema>;
+
+export interface EventCommentDoc {
+  commentId: string;
+  eventId: string;
+  userId: string;
+  userName: string;
+  userPhotoURL?: string | null;
+  text: string;
+  createdAt: Timestamp;
+}

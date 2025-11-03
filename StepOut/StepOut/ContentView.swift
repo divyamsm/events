@@ -23,6 +23,7 @@ struct ContentView: View {
     @State private var showAttendanceSheet: EventFeedViewModel.FeedEvent?
     @State private var pendingRSVP: EventFeedViewModel.FeedEvent?
     @State private var selectedFeedTab: FeedTab = .upcoming
+    @State private var showEventDetails: EventFeedViewModel.FeedEvent?
 
 
     enum FeedTab: String, CaseIterable {
@@ -115,6 +116,7 @@ struct ContentView: View {
             deleteTarget: $deleteTarget,
             showAttendanceSheet: $showAttendanceSheet,
             pendingRSVP: $pendingRSVP,
+            showEventDetails: $showEventDetails,
             alertContext: $alertContext
         )
     }
@@ -136,6 +138,7 @@ private struct MainAppContentView: View {
     @Binding var deleteTarget: EventFeedViewModel.FeedEvent?
     @Binding var showAttendanceSheet: EventFeedViewModel.FeedEvent?
     @Binding var pendingRSVP: EventFeedViewModel.FeedEvent?
+    @Binding var showEventDetails: EventFeedViewModel.FeedEvent?
     @Binding var alertContext: AlertContext?
 
     @State private var selectedMainTab: MainTab = .home
@@ -148,88 +151,30 @@ private struct MainAppContentView: View {
     }
 
     var body: some View {
+        tabViewWithSheets
+    }
+
+    private var mainTabs: some View {
         TabView(selection: $selectedMainTab) {
-            // Home Tab with Events
-            NavigationStack {
-                ZStack {
-                    // Gradient background
-                    LinearGradient(
-                        colors: [
-                            Color.blue.opacity(0.05),
-                            Color.purple.opacity(0.05),
-                            Color(.systemBackground)
-                        ],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-                    .ignoresSafeArea()
-
-                    VStack(spacing: 0) {
-                        // Modern header
-                        ModernHomeHeader(
-                            selectedTab: $selectedFeedTab,
-                            viewMode: $viewMode,
-                            onCreateTapped: { showingCreateEvent = true }
-                        )
-
-                        Group {
-                            if selectedFeedTab == .upcoming {
-                                if viewMode == .map {
-                                    eventsMapView
-                                } else {
-                                    upcomingFeed
-                                }
-                            } else {
-                                pastFeed
-                            }
-                        }
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    }
-                }
-                .navigationBarTitleDisplayMode(.inline)
-                .toolbar {
-                    ToolbarItem(placement: .principal) {
-                        HStack(spacing: 8) {
-                            Image(systemName: "flame.fill")
-                                .foregroundStyle(
-                                    LinearGradient(
-                                        colors: [.orange, .pink],
-                                        startPoint: .topLeading,
-                                        endPoint: .bottomTrailing
-                                    )
-                                )
-                            Text("StepOut")
-                                .font(.title3.bold())
-                        }
-                    }
-                }
-            }
-            .tabItem {
-                Label("Home", systemImage: "house.fill")
-            }
-            .tag(MainTab.home)
-
-            // Chats Tab
+            homeTab
             ChatsTabView(authManager: authManager)
-                .tabItem {
-                    Label("Chats", systemImage: "message.fill")
-                }
+                .tabItem { Label("Chats", systemImage: "message.fill") }
                 .tag(MainTab.chats)
-
-            // Profile Tab
             NavigationStack {
                 ProfileView(authManager: authManager)
                     .environmentObject(appState)
             }
-            .tabItem {
-                Label("Profile", systemImage: "person.fill")
-            }
+            .tabItem { Label("Profile", systemImage: "person.fill") }
             .tag(MainTab.profile)
         }
         .tint(.primary)
         .task { await viewModel.loadFeed() }
         .refreshable { await viewModel.loadFeed() }
-        .sheet(item: $viewModel.shareContext) { context in
+    }
+
+    private var tabViewWithSheets: some View {
+        mainTabs
+            .sheet(item: $viewModel.shareContext) { context in
             ShareEventSheet(
                 context: context,
                 onSend: { recipients in
@@ -289,6 +234,16 @@ private struct MainAppContentView: View {
             .presentationDetents([.fraction(0.55), .large])
             .presentationDragIndicator(.visible)
         }
+        .sheet(item: $showEventDetails) { feedEvent in
+            if let authManager = authManager,
+               let currentUserId = authManager.currentSession?.firebaseUID {
+                EventDetailTabsView(
+                    feedEvent: feedEvent,
+                    currentUserId: currentUserId,
+                    isEventOwner: feedEvent.isEditable
+                )
+            }
+        }
         .alert(item: $alertContext) { context in
             Alert(
                 title: Text(context.title),
@@ -324,160 +279,225 @@ private struct MainAppContentView: View {
         }
     }
 
-    @ViewBuilder
-    private var upcomingFeed: some View {
-        if viewModel.feedEvents.isEmpty && viewModel.isLoading {
-            VStack {
-                Spacer()
-                ProgressView("Loading events...")
-                    .progressViewStyle(.circular)
-                Spacer()
-            }
-        } else if viewModel.feedEvents.isEmpty {
-            // Beautiful empty state
-            VStack(spacing: 32) {
-                Spacer()
+    private var homeTab: some View {
+        NavigationStack {
+            ZStack {
+                LinearGradient(
+                    colors: [
+                        Color.blue.opacity(0.05),
+                        Color.purple.opacity(0.05),
+                        Color(.systemBackground)
+                    ],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+                .ignoresSafeArea()
 
-                // Gradient icon
-                ZStack {
-                    Circle()
-                        .fill(
-                            LinearGradient(
-                                colors: [.blue.opacity(0.15), .purple.opacity(0.15)],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            )
-                        )
-                        .frame(width: 120, height: 120)
-
-                    Image(systemName: "calendar.badge.plus")
-                        .font(.system(size: 48, weight: .light))
-                        .foregroundStyle(
-                            LinearGradient(
-                                colors: [.blue, .purple],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            )
-                        )
-                }
-
-                VStack(spacing: 12) {
-                    Text("No Events Yet")
-                        .font(.title.bold())
-                        .foregroundStyle(.primary)
-
-                    Text("Create your first event to start\nconnecting with friends")
-                        .font(.body)
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
-                        .lineLimit(2)
-                }
-
-                // CTA Button
-                Button(action: { showingCreateEvent = true }) {
-                    HStack(spacing: 12) {
-                        Image(systemName: "plus.circle.fill")
-                            .font(.title3)
-                        Text("Create Event")
-                            .font(.headline)
-                    }
-                    .foregroundColor(.white)
-                    .padding(.horizontal, 32)
-                    .padding(.vertical, 16)
-                    .background(
-                        LinearGradient(
-                            colors: [.blue, .purple],
-                            startPoint: .leading,
-                            endPoint: .trailing
-                        )
+                VStack(spacing: 0) {
+                    ModernHomeHeader(
+                        selectedTab: $selectedFeedTab,
+                        viewMode: $viewMode,
+                        onCreateTapped: { showingCreateEvent = true }
                     )
-                    .cornerRadius(16)
-                    .shadow(
-                        color: .blue.opacity(0.4),
-                        radius: 12,
-                        x: 0,
-                        y: 6
-                    )
-                }
 
-                Spacer()
-            }
-            .padding(.horizontal, 40)
-        } else {
-            GeometryReader { proxy in
-                let containerHeight = proxy.size.height
-                let cardHeight = containerHeight * 0.78
-
-                Group {
-                    if #available(iOS 17.0, *) {
-                        ScrollView(.vertical, showsIndicators: false) {
-                            LazyVStack(spacing: 0) {
-                                ForEach(viewModel.feedEvents) { feedEvent in
-                                    VStack {
-                                        Spacer(minLength: 0)
-                                        EventCardView(
-                                            feedEvent: feedEvent,
-                                            shareAction: {
-                                                viewModel.beginShare(for: feedEvent)
-                                            },
-                                            rsvpAction: {
-                                                if feedEvent.isAttending {
-                                                    viewModel.updateAttendance(for: feedEvent, going: false, arrivalTime: nil)
-                                                } else {
-                                                    pendingRSVP = feedEvent
-                                                }
-                                            },
-                                            editAction: feedEvent.isEditable ? {
-                                                editingEvent = feedEvent
-                                            } : nil,
-                                            deleteAction: feedEvent.isEditable ? {
-                                                deleteTarget = feedEvent
-                                            } : nil,
-                                            showAllAttendees: feedEvent.badges.count > 2 ? {
-                                                showAttendanceSheet = feedEvent
-                                            } : nil
-                                        )
-                                        .frame(height: cardHeight)
-                                        .padding(.horizontal, 24)
-                                        Spacer(minLength: 0)
-                                    }
-                                    .frame(height: containerHeight)
-                                }
+                    Group {
+                        if selectedFeedTab == .upcoming {
+                            if viewMode == .map {
+                                eventsMapView
+                            } else {
+                                upcomingFeed
                             }
+                        } else {
+                            pastFeed
                         }
-                        .scrollTargetBehavior(.paging)
-                    } else {
-                        VerticalCarouselFallback(
-                            feedEvents: viewModel.feedEvents,
-                            containerSize: proxy.size,
-                            shareTapped: { feedEvent in
-                                viewModel.beginShare(for: feedEvent)
-                            },
-                            rsvpTapped: { feedEvent in
-                                if feedEvent.isAttending {
-                                    viewModel.updateAttendance(for: feedEvent, going: false, arrivalTime: nil)
-                                } else {
-                                    pendingRSVP = feedEvent
-                                }
-                            },
-                            editTapped: { feedEvent in
-                                if feedEvent.isEditable {
-                                    editingEvent = feedEvent
-                                }
-                            },
-                            deleteTapped: { feedEvent in
-                                if feedEvent.isEditable {
-                                    deleteTarget = feedEvent
-                                }
-                            },
-                            showAllTapped: { feedEvent in
-                                showAttendanceSheet = feedEvent
-                            }
-                        )
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
+            }
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .principal) {
+                    HStack(spacing: 8) {
+                        Image(systemName: "flame.fill")
+                            .foregroundStyle(
+                                LinearGradient(
+                                    colors: [.orange, .pink],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                )
+                            )
+                        Text("StepOut")
+                            .font(.title3.bold())
                     }
                 }
             }
         }
+        .tabItem { Label("Home", systemImage: "house.fill") }
+        .tag(MainTab.home)
+    }
+
+    @ViewBuilder
+    private var upcomingFeed: some View {
+        if viewModel.feedEvents.isEmpty && viewModel.isLoading {
+            loadingView
+        } else if viewModel.feedEvents.isEmpty {
+            emptyEventsView
+        } else {
+            eventsCarouselView
+        }
+    }
+
+    private var loadingView: some View {
+        VStack {
+            Spacer()
+            ProgressView("Loading events...")
+                .progressViewStyle(.circular)
+            Spacer()
+        }
+    }
+
+    private var emptyEventsView: some View {
+        VStack(spacing: 32) {
+            Spacer()
+
+            ZStack {
+                Circle()
+                    .fill(
+                        LinearGradient(
+                            colors: [.blue.opacity(0.15), .purple.opacity(0.15)],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+                    .frame(width: 120, height: 120)
+
+                Image(systemName: "calendar.badge.plus")
+                    .font(.system(size: 48, weight: .light))
+                    .foregroundStyle(
+                        LinearGradient(
+                            colors: [.blue, .purple],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+            }
+
+            VStack(spacing: 12) {
+                Text("No Events Yet")
+                    .font(.title.bold())
+                    .foregroundStyle(.primary)
+
+                Text("Create your first event to start\nconnecting with friends")
+                    .font(.body)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .lineLimit(2)
+            }
+
+            Button("Create Event") {
+                showingCreateEvent = true
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+
+            Spacer()
+        }
+        .padding(.horizontal, 40)
+    }
+
+    private var eventsCarouselView: some View {
+        GeometryReader { proxy in
+            let containerHeight = proxy.size.height
+            let cardHeight = containerHeight * 0.78
+
+            Group {
+                if #available(iOS 17.0, *) {
+                    ios17EventsScroll(containerHeight: containerHeight, cardHeight: cardHeight)
+                } else {
+                    fallbackEventsCarousel(containerSize: proxy.size)
+                }
+            }
+        }
+    }
+
+    @available(iOS 17.0, *)
+    private func ios17EventsScroll(containerHeight: CGFloat, cardHeight: CGFloat) -> some View {
+        ScrollView(.vertical, showsIndicators: false) {
+            LazyVStack(spacing: 0) {
+                ForEach(viewModel.feedEvents) { feedEvent in
+                    eventCardContainer(feedEvent: feedEvent, containerHeight: containerHeight, cardHeight: cardHeight)
+                }
+            }
+        }
+        .scrollTargetBehavior(.paging)
+    }
+
+    private func eventCardContainer(feedEvent: EventFeedViewModel.FeedEvent, containerHeight: CGFloat, cardHeight: CGFloat) -> some View {
+        VStack {
+            Spacer(minLength: 0)
+            EventCardView(
+                feedEvent: feedEvent,
+                shareAction: {
+                    viewModel.beginShare(for: feedEvent)
+                },
+                rsvpAction: {
+                    if feedEvent.isAttending {
+                        viewModel.updateAttendance(for: feedEvent, going: false, arrivalTime: nil)
+                    } else {
+                        pendingRSVP = feedEvent
+                    }
+                },
+                editAction: feedEvent.isEditable ? {
+                    editingEvent = feedEvent
+                } : nil,
+                deleteAction: feedEvent.isEditable ? {
+                    deleteTarget = feedEvent
+                } : nil,
+                showAllAttendees: feedEvent.badges.count > 2 ? {
+                    showAttendanceSheet = feedEvent
+                } : nil,
+                showDetails: {
+                    showEventDetails = feedEvent
+                }
+            )
+            .frame(height: cardHeight)
+            .padding(.horizontal, 24)
+            Spacer(minLength: 0)
+        }
+        .frame(height: containerHeight)
+    }
+
+    private func fallbackEventsCarousel(containerSize: CGSize) -> some View {
+        VerticalCarouselFallback(
+            feedEvents: viewModel.feedEvents,
+            containerSize: containerSize,
+            shareTapped: { feedEvent in
+                viewModel.beginShare(for: feedEvent)
+            },
+            rsvpTapped: { feedEvent in
+                if feedEvent.isAttending {
+                    viewModel.updateAttendance(for: feedEvent, going: false, arrivalTime: nil)
+                } else {
+                    pendingRSVP = feedEvent
+                }
+            },
+            editTapped: { feedEvent in
+                if feedEvent.isEditable {
+                    editingEvent = feedEvent
+                }
+            },
+            deleteTapped: { feedEvent in
+                if feedEvent.isEditable {
+                    deleteTarget = feedEvent
+                }
+            },
+            showAllTapped: { feedEvent in
+                showAttendanceSheet = feedEvent
+            },
+            showDetailsTapped: { feedEvent in
+                showEventDetails = feedEvent
+            }
+        )
     }
 
     @ViewBuilder
@@ -714,7 +734,6 @@ private struct PastEventRow: View {
     }
 }
 
-
 private struct EventCardView: View {
     let feedEvent: EventFeedViewModel.FeedEvent
     let shareAction: () -> Void
@@ -722,6 +741,7 @@ private struct EventCardView: View {
     let editAction: (() -> Void)?
     let deleteAction: (() -> Void)?
     let showAllAttendees: (() -> Void)?
+    let showDetails: (() -> Void)?
 
     private let cornerRadius: CGFloat = 28
 
@@ -860,6 +880,9 @@ private struct EventCardView: View {
 
             HStack(spacing: 14) {
                 rsvpButton
+                if let showDetails = showDetails {
+                    detailButton(action: showDetails)
+                }
                 shareButton
             }
         }
@@ -962,6 +985,25 @@ private struct EventCardView: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Share \(feedEvent.event.title)")
+    }
+
+    private func detailButton(action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: "photo.on.rectangle.angled")
+                .font(.system(size: 20, weight: .semibold))
+                .foregroundStyle(.white)
+                .frame(width: 52, height: 52)
+                .background(
+                    Circle()
+                        .fill(.ultraThinMaterial)
+                )
+                .overlay(
+                    Circle()
+                        .strokeBorder(Color.white.opacity(0.25), lineWidth: 1.2)
+                )
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("View photos and comments")
     }
 }
 
@@ -1479,6 +1521,7 @@ private struct VerticalCarouselFallback: View {
     let editTapped: (EventFeedViewModel.FeedEvent) -> Void
     let deleteTapped: (EventFeedViewModel.FeedEvent) -> Void
     let showAllTapped: (EventFeedViewModel.FeedEvent) -> Void
+    let showDetailsTapped: (EventFeedViewModel.FeedEvent) -> Void
 
     var body: some View {
         TabView {
@@ -1489,7 +1532,8 @@ private struct VerticalCarouselFallback: View {
                     rsvpAction: { rsvpTapped(feedEvent) },
                     editAction: feedEvent.isEditable ? { editTapped(feedEvent) } : nil,
                     deleteAction: feedEvent.isEditable ? { deleteTapped(feedEvent) } : nil,
-                    showAllAttendees: feedEvent.badges.count > 2 ? { showAllTapped(feedEvent) } : nil
+                    showAllAttendees: feedEvent.badges.count > 2 ? { showAllTapped(feedEvent) } : nil,
+                    showDetails: { showDetailsTapped(feedEvent) }
                 )
                 .frame(width: containerSize.width * 0.82, height: containerSize.height * 0.75)
                 .padding(.horizontal, 24)

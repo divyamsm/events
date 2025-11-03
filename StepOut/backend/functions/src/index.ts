@@ -1489,3 +1489,323 @@ export const archiveOldChats = onSchedule("every day 02:00", async (event) => {
     throw error;
   }
 });
+
+// ===========================
+// Event Photos APIs
+// ===========================
+
+export const uploadEventPhoto = onCall(async (request) => {
+  const authUid = requireAuth(request);
+  const payload: schema.UploadPhotoPayload = parseRequest(schema.uploadPhotoSchema, request.data);
+  console.log("[Function] uploadEventPhoto payload", payload, "authUid:", authUid);
+
+  try {
+    // Verify event exists
+    const eventRef = db.collection("events").doc(payload.eventId);
+    const eventSnap = await eventRef.get();
+    if (!eventSnap.exists) {
+      throw new HttpsError("not-found", "Event not found");
+    }
+
+    // Get user info
+    const userRef = db.collection("users").doc(authUid);
+    const userSnap = await userRef.get();
+    const userData = userSnap.data() as schema.UserDoc | undefined;
+    const userName = userData?.displayName ?? "User";
+    const userPhotoURL = userData?.photoURL ?? null;
+
+    const now = Timestamp.now();
+    const photoId = randomUUID();
+    const photoDoc: schema.EventPhotoDoc = {
+      photoId,
+      eventId: payload.eventId,
+      userId: authUid,
+      userName,
+      userPhotoURL,
+      photoURL: payload.photoURL,
+      caption: payload.caption ?? null,
+      createdAt: now
+    };
+
+    await db.collection("eventPhotos").doc(photoId).set(photoDoc);
+
+    console.log("[Function] uploadEventPhoto created photo", photoId);
+    return { photoId };
+  } catch (error) {
+    console.error("[Function] uploadEventPhoto error", error);
+    if (error instanceof HttpsError) {
+      throw error;
+    }
+    throw new HttpsError("internal", (error as Error).message ?? "Failed to upload photo.");
+  }
+});
+
+export const listEventPhotos = onCall(async (request) => {
+  const authUid = requireAuth(request);
+  const rawPayload = parseRequest(schema.listPhotosSchema, request.data);
+  const payload: schema.ListPhotosPayload = {
+    eventId: rawPayload.eventId,
+    limit: rawPayload.limit ?? 30,
+    before: rawPayload.before
+  };
+  console.log("[Function] listEventPhotos payload", payload, "authUid:", authUid);
+
+  try {
+    // Verify event exists and user has access
+    const eventRef = db.collection("events").doc(payload.eventId);
+    const eventSnap = await eventRef.get();
+    if (!eventSnap.exists) {
+      throw new HttpsError("not-found", "Event not found");
+    }
+
+    const eventData = eventSnap.data();
+    const visibility = eventData?.visibility;
+
+    // Check access: public event, invited, or attending
+    if (visibility !== "public") {
+      const memberSnap = await eventRef.collection("members").doc(authUid).get();
+      const sharedInviteIds = (eventData?.sharedInviteFriendIds as string[]) ?? [];
+
+      if (!memberSnap.exists && !sharedInviteIds.includes(authUid) && eventData?.ownerId !== authUid) {
+        throw new HttpsError("permission-denied", "You don't have access to this event");
+      }
+    }
+
+    // Get photos with cursor pagination
+    let photosQuery = db.collection("eventPhotos")
+      .where("eventId", "==", payload.eventId)
+      .orderBy("createdAt", "desc");
+
+    if (payload.before) {
+      photosQuery = photosQuery.where("createdAt", "<", Timestamp.fromDate(payload.before));
+    }
+
+    photosQuery = photosQuery.limit(payload.limit);
+
+    const photosSnap = await photosQuery.get();
+
+    const photos = photosSnap.docs.map(doc => {
+      const data = doc.data() as schema.EventPhotoDoc;
+      return {
+        photoId: data.photoId,
+        userId: data.userId,
+        userName: data.userName,
+        userPhotoURL: data.userPhotoURL,
+        photoURL: data.photoURL,
+        caption: data.caption,
+        createdAt: data.createdAt.toMillis()
+      };
+    });
+
+    console.log("[Function] listEventPhotos returning", photos.length, "photos");
+    return { photos };
+  } catch (error) {
+    console.error("[Function] listEventPhotos error", error);
+    if (error instanceof HttpsError) {
+      throw error;
+    }
+    throw new HttpsError("internal", (error as Error).message ?? "Failed to list photos.");
+  }
+});
+
+export const deleteEventPhoto = onCall(async (request) => {
+  const authUid = requireAuth(request);
+  const payload: schema.DeletePhotoPayload = parseRequest(schema.deletePhotoSchema, request.data);
+  console.log("[Function] deleteEventPhoto payload", payload, "authUid:", authUid);
+
+  try {
+    const photoRef = db.collection("eventPhotos").doc(payload.photoId);
+    const photoSnap = await photoRef.get();
+
+    if (!photoSnap.exists) {
+      throw new HttpsError("not-found", "Photo not found");
+    }
+
+    const photoData = photoSnap.data() as schema.EventPhotoDoc;
+
+    // Verify user is photo owner or event owner
+    const eventRef = db.collection("events").doc(payload.eventId);
+    const eventSnap = await eventRef.get();
+    const eventData = eventSnap.data();
+
+    if (photoData.userId !== authUid && eventData?.ownerId !== authUid) {
+      throw new HttpsError("permission-denied", "You can only delete your own photos or photos from your events");
+    }
+
+    await photoRef.delete();
+
+    console.log("[Function] deleteEventPhoto deleted", payload.photoId);
+    return { success: true };
+  } catch (error) {
+    console.error("[Function] deleteEventPhoto error", error);
+    if (error instanceof HttpsError) {
+      throw error;
+    }
+    throw new HttpsError("internal", (error as Error).message ?? "Failed to delete photo.");
+  }
+});
+
+// ===========================
+// Event Comments APIs
+// ===========================
+
+export const postEventComment = onCall(async (request) => {
+  const authUid = requireAuth(request);
+  const payload: schema.PostCommentPayload = parseRequest(schema.postCommentSchema, request.data);
+  console.log("[Function] postEventComment payload", payload, "authUid:", authUid);
+
+  try {
+    // Verify event exists
+    const eventRef = db.collection("events").doc(payload.eventId);
+    const eventSnap = await eventRef.get();
+    if (!eventSnap.exists) {
+      throw new HttpsError("not-found", "Event not found");
+    }
+
+    const eventData = eventSnap.data();
+    const visibility = eventData?.visibility;
+
+    // Check access: public event, invited, or attending
+    if (visibility !== "public") {
+      const memberSnap = await eventRef.collection("members").doc(authUid).get();
+      const sharedInviteIds = (eventData?.sharedInviteFriendIds as string[]) ?? [];
+
+      if (!memberSnap.exists && !sharedInviteIds.includes(authUid) && eventData?.ownerId !== authUid) {
+        throw new HttpsError("permission-denied", "You don't have access to this event");
+      }
+    }
+
+    // Get user info
+    const userRef = db.collection("users").doc(authUid);
+    const userSnap = await userRef.get();
+    const userData = userSnap.data() as schema.UserDoc | undefined;
+    const userName = userData?.displayName ?? "User";
+    const userPhotoURL = userData?.photoURL ?? null;
+
+    const now = Timestamp.now();
+    const commentId = randomUUID();
+    const commentDoc: schema.EventCommentDoc = {
+      commentId,
+      eventId: payload.eventId,
+      userId: authUid,
+      userName,
+      userPhotoURL,
+      text: payload.text,
+      createdAt: now
+    };
+
+    await db.collection("eventComments").doc(commentId).set(commentDoc);
+
+    console.log("[Function] postEventComment created comment", commentId);
+    return { commentId };
+  } catch (error) {
+    console.error("[Function] postEventComment error", error);
+    if (error instanceof HttpsError) {
+      throw error;
+    }
+    throw new HttpsError("internal", (error as Error).message ?? "Failed to post comment.");
+  }
+});
+
+export const listEventComments = onCall(async (request) => {
+  const authUid = requireAuth(request);
+  const rawPayload = parseRequest(schema.listCommentsSchema, request.data);
+  const payload: schema.ListCommentsPayload = {
+    eventId: rawPayload.eventId,
+    limit: rawPayload.limit ?? 50,
+    before: rawPayload.before
+  };
+  console.log("[Function] listEventComments payload", payload, "authUid:", authUid);
+
+  try {
+    // Verify event exists and user has access
+    const eventRef = db.collection("events").doc(payload.eventId);
+    const eventSnap = await eventRef.get();
+    if (!eventSnap.exists) {
+      throw new HttpsError("not-found", "Event not found");
+    }
+
+    const eventData = eventSnap.data();
+    const visibility = eventData?.visibility;
+
+    // Check access: public event, invited, or attending
+    if (visibility !== "public") {
+      const memberSnap = await eventRef.collection("members").doc(authUid).get();
+      const sharedInviteIds = (eventData?.sharedInviteFriendIds as string[]) ?? [];
+
+      if (!memberSnap.exists && !sharedInviteIds.includes(authUid) && eventData?.ownerId !== authUid) {
+        throw new HttpsError("permission-denied", "You don't have access to this event");
+      }
+    }
+
+    // Get comments
+    let commentsQuery = db.collection("eventComments")
+      .where("eventId", "==", payload.eventId)
+      .orderBy("createdAt", "desc")
+      .limit(payload.limit);
+
+    if (payload.before) {
+      commentsQuery = commentsQuery.where("createdAt", "<", Timestamp.fromDate(payload.before));
+    }
+
+    const commentsSnap = await commentsQuery.get();
+
+    const comments = commentsSnap.docs.map(doc => {
+      const data = doc.data() as schema.EventCommentDoc;
+      return {
+        commentId: data.commentId,
+        userId: data.userId,
+        userName: data.userName,
+        userPhotoURL: data.userPhotoURL,
+        text: data.text,
+        createdAt: data.createdAt.toMillis()
+      };
+    });
+
+    console.log("[Function] listEventComments returning", comments.length, "comments");
+    return { comments };
+  } catch (error) {
+    console.error("[Function] listEventComments error", error);
+    if (error instanceof HttpsError) {
+      throw error;
+    }
+    throw new HttpsError("internal", (error as Error).message ?? "Failed to list comments.");
+  }
+});
+
+export const deleteEventComment = onCall(async (request) => {
+  const authUid = requireAuth(request);
+  const payload: schema.DeleteCommentPayload = parseRequest(schema.deleteCommentSchema, request.data);
+  console.log("[Function] deleteEventComment payload", payload, "authUid:", authUid);
+
+  try {
+    const commentRef = db.collection("eventComments").doc(payload.commentId);
+    const commentSnap = await commentRef.get();
+
+    if (!commentSnap.exists) {
+      throw new HttpsError("not-found", "Comment not found");
+    }
+
+    const commentData = commentSnap.data() as schema.EventCommentDoc;
+
+    // Verify user is comment owner or event owner
+    const eventRef = db.collection("events").doc(payload.eventId);
+    const eventSnap = await eventRef.get();
+    const eventData = eventSnap.data();
+
+    if (commentData.userId !== authUid && eventData?.ownerId !== authUid) {
+      throw new HttpsError("permission-denied", "You can only delete your own comments or comments from your events");
+    }
+
+    await commentRef.delete();
+
+    console.log("[Function] deleteEventComment deleted", payload.commentId);
+    return { success: true };
+  } catch (error) {
+    console.error("[Function] deleteEventComment error", error);
+    if (error instanceof HttpsError) {
+      throw error;
+    }
+    throw new HttpsError("internal", (error as Error).message ?? "Failed to delete comment.");
+  }
+});
