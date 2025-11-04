@@ -184,7 +184,7 @@ private struct MainAppContentView: View {
             )
         }
         .sheet(isPresented: $showingCreateEvent) {
-            CreateEventView(friends: viewModel.friendOptions) { title, location, date, endDate, coordinate, imageURL, privacy, invitedIDs, imageData in
+            CreateEventView(friends: viewModel.friendOptions) { title, location, date, endDate, coordinate, imageURL, privacy, invitedIDs, imageData, categories in
                 viewModel.createEvent(
                     title: title,
                     location: location,
@@ -194,13 +194,14 @@ private struct MainAppContentView: View {
                     imageURL: imageURL,
                     privacy: privacy,
                     invitedFriendIDs: invitedIDs,
-                    localImageData: imageData
+                    localImageData: imageData,
+                    categories: categories
                 )
             }
             .presentationDetents([.medium, .large])
         }
         .sheet(item: $editingEvent) { editing in
-            EditEventView(feedEvent: editing, friends: viewModel.friendOptions) { title, location, date, coordinate, privacy, invitedIDs, imageData in
+            EditEventView(feedEvent: editing, friends: viewModel.friendOptions) { title, location, date, coordinate, privacy, invitedIDs, imageData, categories in
                 viewModel.updateEvent(
                     id: editing.id,
                     title: title,
@@ -209,7 +210,8 @@ private struct MainAppContentView: View {
                     coordinate: coordinate,
                     privacy: privacy,
                     invitedFriendIDs: invitedIDs,
-                    localImageData: imageData
+                    localImageData: imageData,
+                    categories: categories
                 )
             }
         }
@@ -300,6 +302,10 @@ private struct MainAppContentView: View {
                         onCreateTapped: { showingCreateEvent = true }
                     )
 
+                    if selectedFeedTab == .upcoming {
+                        searchAndFilterBar
+                    }
+
                     Group {
                         if selectedFeedTab == .upcoming {
                             if viewMode == .map {
@@ -334,6 +340,48 @@ private struct MainAppContentView: View {
         }
         .tabItem { Label("Home", systemImage: "house.fill") }
         .tag(MainTab.home)
+        .sheet(isPresented: $viewModel.showFilters) {
+            FilterSheet(viewModel: viewModel)
+                .presentationDetents([.medium, .large])
+        }
+    }
+
+    private var searchAndFilterBar: some View {
+        HStack(spacing: 12) {
+            HStack {
+                Image(systemName: "magnifyingglass")
+                    .foregroundStyle(.secondary)
+                TextField("Search events", text: $viewModel.searchText)
+                    .textFieldStyle(.plain)
+                if !viewModel.searchText.isEmpty {
+                    Button(action: { viewModel.searchText = "" }) {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .background(Color(.secondarySystemBackground))
+            .cornerRadius(10)
+
+            Button(action: { viewModel.showFilters = true }) {
+                HStack(spacing: 4) {
+                    Image(systemName: "line.3.horizontal.decrease.circle")
+                    if !viewModel.selectedCategories.isEmpty || viewModel.maxDistance != nil {
+                        Circle()
+                            .fill(Color.blue)
+                            .frame(width: 8, height: 8)
+                    }
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
+                .background(Color(.secondarySystemBackground))
+                .cornerRadius(10)
+            }
+        }
+        .padding(.horizontal)
+        .padding(.vertical, 8)
     }
 
     @ViewBuilder
@@ -903,6 +951,21 @@ private struct EventCardView: View {
             Text(feedEvent.event.title)
                 .font(.title3.bold())
                 .fixedSize(horizontal: false, vertical: true)
+
+            HStack(spacing: 6) {
+                ForEach(feedEvent.event.categories.prefix(3)) { category in
+                    HStack(spacing: 3) {
+                        Image(systemName: category.icon)
+                            .font(.caption2)
+                        Text(category.displayName)
+                            .font(.caption2.weight(.medium))
+                    }
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(Color.blue.opacity(0.8))
+                    .cornerRadius(6)
+                }
+            }
 
             Text(feedEvent.event.location)
                 .font(.headline)
@@ -1552,7 +1615,7 @@ private struct VerticalCarouselFallback: View {
 private struct CreateEventView: View {
     @Environment(\.dismiss) private var dismiss
     let friends: [Friend]
-    let onCreate: (String, String, Date, Date, CLLocationCoordinate2D?, URL, Event.Privacy, [UUID], Data?) -> Void
+    let onCreate: (String, String, Date, Date, CLLocationCoordinate2D?, URL, Event.Privacy, [UUID], Data?, [EventCategory]) -> Void
 
     @State private var title: String = ""
     @State private var location: String = ""
@@ -1565,6 +1628,7 @@ private struct CreateEventView: View {
     @State private var photoItem: PhotosPickerItem?
     @State private var imageData: Data?
     @State private var showLocationSearch = false
+    @State private var selectedCategories: Set<EventCategory> = [.other]
 
     private let geocoder = CLGeocoder()
 
@@ -1663,6 +1727,36 @@ private struct CreateEventView: View {
                     }
                 }
 
+                Section(header: Text("Categories"), footer: Text("Pick 1-3 categories for your event")) {
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 100))], spacing: 12) {
+                        ForEach(EventCategory.allCases) { category in
+                            Button(action: {
+                                if selectedCategories.contains(category) {
+                                    if selectedCategories.count > 1 {
+                                        selectedCategories.remove(category)
+                                    }
+                                } else if selectedCategories.count < 3 {
+                                    selectedCategories.insert(category)
+                                }
+                            }) {
+                                VStack(spacing: 4) {
+                                    Image(systemName: category.icon)
+                                        .font(.title2)
+                                    Text(category.displayName)
+                                        .font(.caption)
+                                }
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 12)
+                                .background(selectedCategories.contains(category) ? Color.blue : Color(.secondarySystemBackground))
+                                .foregroundColor(selectedCategories.contains(category) ? .white : .primary)
+                                .cornerRadius(8)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .padding(.vertical, 8)
+                }
+
                 Section(header: Text("Visibility")) {
                     Picker("Privacy", selection: $selectedPrivacy) {
                         Text("Public").tag(Event.Privacy.public)
@@ -1742,7 +1836,9 @@ private struct CreateEventView: View {
     private func createEvent() {
         let seed = UUID().uuidString
         let url = URL(string: "https://picsum.photos/seed/\(seed)/1400/900")!
-        onCreate(trimmedTitle, trimmedLocation, eventDate, eventEndDate, coordinate, url, selectedPrivacy, Array(selectedFriendIDs), imageData)
+        let categoriesArray = Array(selectedCategories)
+        print("[CreateEventView] Creating event with categories:", categoriesArray)
+        onCreate(trimmedTitle, trimmedLocation, eventDate, eventEndDate, coordinate, url, selectedPrivacy, Array(selectedFriendIDs), imageData, categoriesArray)
         dismiss()
     }
 
@@ -1756,13 +1852,14 @@ private struct EditEventView: View {
     @Environment(\.dismiss) private var dismiss
     let feedEvent: EventFeedViewModel.FeedEvent
     let friends: [Friend]
-    let onSave: (String, String, Date, CLLocationCoordinate2D?, Event.Privacy, [UUID], Data?) -> Void
+    let onSave: (String, String, Date, CLLocationCoordinate2D?, Event.Privacy, [UUID], Data?, [EventCategory]) -> Void
 
     @State private var title: String
     @State private var location: String
     @State private var eventDate: Date
     @State private var selectedPrivacy: Event.Privacy
     @State private var selectedFriendIDs: Set<UUID>
+    @State private var selectedCategories: Set<EventCategory>
     @State private var coordinate: CLLocationCoordinate2D?
     @State private var photoItem: PhotosPickerItem?
     @State private var imageData: Data?
@@ -1770,7 +1867,7 @@ private struct EditEventView: View {
 
     private let geocoder = CLGeocoder()
 
-    init(feedEvent: EventFeedViewModel.FeedEvent, friends: [Friend], onSave: @escaping (String, String, Date, CLLocationCoordinate2D?, Event.Privacy, [UUID], Data?) -> Void) {
+    init(feedEvent: EventFeedViewModel.FeedEvent, friends: [Friend], onSave: @escaping (String, String, Date, CLLocationCoordinate2D?, Event.Privacy, [UUID], Data?, [EventCategory]) -> Void) {
         self.feedEvent = feedEvent
         self.friends = friends
         self.onSave = onSave
@@ -1779,6 +1876,7 @@ private struct EditEventView: View {
         _eventDate = State(initialValue: feedEvent.event.date)
         _selectedPrivacy = State(initialValue: feedEvent.event.privacy)
         _selectedFriendIDs = State(initialValue: Set(feedEvent.event.sharedInviteFriendIDs))
+        _selectedCategories = State(initialValue: Set(feedEvent.event.categories))
         _coordinate = State(initialValue: feedEvent.event.coordinate)
         _imageData = State(initialValue: feedEvent.event.localImageData)
     }
@@ -1849,6 +1947,35 @@ private struct EditEventView: View {
                                 .clipShape(RoundedRectangle(cornerRadius: 8))
                             }
                             Text("Change cover photo")
+                        }
+                    }
+                }
+
+                Section(header: Text("Categories"), footer: Text("Pick 1-3 categories for your event")) {
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 100))], spacing: 12) {
+                        ForEach(EventCategory.allCases) { category in
+                            Button(action: {
+                                if selectedCategories.contains(category) {
+                                    if selectedCategories.count > 1 {
+                                        selectedCategories.remove(category)
+                                    }
+                                } else if selectedCategories.count < 3 {
+                                    selectedCategories.insert(category)
+                                }
+                            }) {
+                                VStack(spacing: 4) {
+                                    Image(systemName: category.icon)
+                                        .font(.title2)
+                                    Text(category.displayName)
+                                        .font(.caption)
+                                }
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 12)
+                                .background(selectedCategories.contains(category) ? Color.blue : Color(.secondarySystemBackground))
+                                .foregroundColor(selectedCategories.contains(category) ? .white : .primary)
+                                .cornerRadius(8)
+                            }
+                            .buttonStyle(.plain)
                         }
                     }
                 }
@@ -1932,7 +2059,8 @@ private struct EditEventView: View {
         let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedLocation = location.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedTitle.isEmpty, !trimmedLocation.isEmpty else { return }
-        onSave(trimmedTitle, trimmedLocation, eventDate, coordinate, selectedPrivacy, Array(selectedFriendIDs), imageData)
+        let categoriesArray = Array(selectedCategories)
+        onSave(trimmedTitle, trimmedLocation, eventDate, coordinate, selectedPrivacy, Array(selectedFriendIDs), imageData, categoriesArray)
         dismiss()
     }
 
@@ -3005,6 +3133,84 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
 
     func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
         location = locations.first
+    }
+}
+
+private struct FilterSheet: View {
+    @ObservedObject var viewModel: EventFeedViewModel
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section(header: Text("Categories")) {
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 100))], spacing: 12) {
+                        ForEach(EventCategory.allCases) { category in
+                            Button(action: {
+                                if viewModel.selectedCategories.contains(category) {
+                                    viewModel.selectedCategories.remove(category)
+                                } else {
+                                    viewModel.selectedCategories.insert(category)
+                                }
+                            }) {
+                                VStack(spacing: 4) {
+                                    Image(systemName: category.icon)
+                                        .font(.title3)
+                                    Text(category.displayName)
+                                        .font(.caption.weight(.medium))
+                                }
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 12)
+                                .background(viewModel.selectedCategories.contains(category) ? Color.blue : Color(.secondarySystemBackground))
+                                .foregroundColor(viewModel.selectedCategories.contains(category) ? .white : .primary)
+                                .cornerRadius(8)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .padding(.vertical, 8)
+                }
+
+                Section(header: Text("Distance")) {
+                    Toggle("Limit by distance", isOn: Binding(
+                        get: { viewModel.maxDistance != nil },
+                        set: { enabled in
+                            viewModel.maxDistance = enabled ? 50.0 : nil
+                        }
+                    ))
+
+                    if viewModel.maxDistance != nil {
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack {
+                                Text("Max distance:")
+                                Spacer()
+                                Text("\(Int(viewModel.maxDistance ?? 50)) km")
+                                    .foregroundStyle(.secondary)
+                            }
+                            Slider(value: Binding(
+                                get: { viewModel.maxDistance ?? 50.0 },
+                                set: { viewModel.maxDistance = $0 }
+                            ), in: 5...200, step: 5)
+                        }
+                    }
+                }
+            }
+            .navigationTitle("Filters")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button("Reset") {
+                        viewModel.selectedCategories.removeAll()
+                        viewModel.maxDistance = nil
+                    }
+                }
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Done") {
+                        dismiss()
+                    }
+                }
+            }
+        }
     }
 }
 

@@ -6,11 +6,11 @@ struct OnboardingFlowView: View {
     @State private var phoneNumber: String = ""
     @State private var otpCode: String = ""
     @State private var contactsAllowed: Bool = false
-    @State private var selectedCategories: Set<EventCategory> = []
+    @State private var selectedCategories: Set<OnboardingEventCategory> = []
     @Namespace private var animationNamespace
     @StateObject private var authViewModel = PhoneAuthViewModel()
 
-    private let categories: [EventCategory] = EventCategory.samples
+    private let categories: [OnboardingEventCategory] = OnboardingEventCategory.samples
     private let sampleContacts: [ContactItem] = ContactItem.samples
 
     var body: some View {
@@ -265,7 +265,7 @@ struct OnboardingFlowView: View {
         .frame(maxHeight: .infinity, alignment: .top)
     }
 
-    private func toggleCategory(_ category: EventCategory) {
+    private func toggleCategory(_ category: OnboardingEventCategory) {
         if selectedCategories.contains(category) {
             selectedCategories.remove(category)
         } else {
@@ -566,7 +566,7 @@ private struct OTPInputView: View {
 }
 
 private struct CategoryCardView: View {
-    let category: EventCategory
+    let category: OnboardingEventCategory
     let isSelected: Bool
     let namespace: Namespace.ID
 
@@ -605,22 +605,22 @@ private struct CategoryCardView: View {
     }
 }
 
-private struct EventCategory: Identifiable, Hashable {
+private struct OnboardingEventCategory: Identifiable, Hashable {
     let id = UUID()
     let title: String
     let iconName: String
 
-    static let samples: [EventCategory] = [
-        EventCategory(title: "Tech Conferences", iconName: "desktopcomputer"),
-        EventCategory(title: "Live Music & Festivals", iconName: "music.mic"),
-        EventCategory(title: "Art & Culture Nights", iconName: "paintpalette.fill"),
-        EventCategory(title: "Startup Meetups", iconName: "lightbulb.max.fill"),
-        EventCategory(title: "Food & Drink Pop-ups", iconName: "fork.knife"),
-        EventCategory(title: "Outdoor Adventures", iconName: "leaf.fill"),
-        EventCategory(title: "Gaming & Esports", iconName: "gamecontroller.fill"),
-        EventCategory(title: "Wellness & Fitness", iconName: "figure.run"),
-        EventCategory(title: "Workshops & Classes", iconName: "book.closed.fill"),
-        EventCategory(title: "Sports & Rec", iconName: "sportscourt")
+    static let samples: [OnboardingEventCategory] = [
+        OnboardingEventCategory(title: "Tech Conferences", iconName: "desktopcomputer"),
+        OnboardingEventCategory(title: "Live Music & Festivals", iconName: "music.mic"),
+        OnboardingEventCategory(title: "Art & Culture Nights", iconName: "paintpalette.fill"),
+        OnboardingEventCategory(title: "Startup Meetups", iconName: "lightbulb.max.fill"),
+        OnboardingEventCategory(title: "Food & Drink Pop-ups", iconName: "fork.knife"),
+        OnboardingEventCategory(title: "Outdoor Adventures", iconName: "leaf.fill"),
+        OnboardingEventCategory(title: "Gaming & Esports", iconName: "gamecontroller.fill"),
+        OnboardingEventCategory(title: "Wellness & Fitness", iconName: "figure.run"),
+        OnboardingEventCategory(title: "Workshops & Classes", iconName: "book.closed.fill"),
+        OnboardingEventCategory(title: "Sports & Rec", iconName: "sportscourt")
     ]
 }
 

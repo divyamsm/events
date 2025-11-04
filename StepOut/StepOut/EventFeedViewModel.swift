@@ -44,7 +44,7 @@ final class EventFeedViewModel: ObservableObject {
         let availableFriends: [Friend]
     }
 
-    @Published private(set) var feedEvents: [FeedEvent] = []
+    @Published private(set) var allFeedEvents: [FeedEvent] = []
     @Published private(set) var isLoading = false
     @Published var shareContext: ShareContext?
     @Published var presentError: String?
@@ -52,6 +52,17 @@ final class EventFeedViewModel: ObservableObject {
     @Published var toastEntry: ToastEntry?
     @Published private(set) var pastFeedEvents: [FeedEvent] = []
     @Published var showAllPastEvents: Bool = false
+    @Published var searchText: String = "" {
+        didSet { applyFilters() }
+    }
+    @Published var selectedCategories: Set<EventCategory> = [] {
+        didSet { applyFilters() }
+    }
+    @Published var maxDistance: Double? = nil {
+        didSet { applyFilters() }
+    }
+    @Published var showFilters: Bool = false
+    @Published private(set) var feedEvents: [FeedEvent] = []
 
     var visiblePastFeedEvents: [FeedEvent] {
         showAllPastEvents ? pastFeedEvents : Array(pastFeedEvents.prefix(5))
@@ -261,7 +272,8 @@ final class EventFeedViewModel: ObservableObject {
         imageURL: URL,
         privacy: Event.Privacy,
         invitedFriendIDs: [UUID],
-        localImageData: Data?
+        localImageData: Data?,
+        categories: [EventCategory] = [.other]
     ) {
         let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedLocation = location.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -275,7 +287,8 @@ final class EventFeedViewModel: ObservableObject {
                         "startAt", date,
                         "endAt", endDate,
                         "location", trimmedLocation,
-                        "privacy", privacy.rawValue
+                        "privacy", privacy.rawValue,
+                        "categories", categories
                     ])
                     _ = try await remoteBackend.createEvent(
                         owner: session.user,
@@ -285,7 +298,8 @@ final class EventFeedViewModel: ObservableObject {
                         endAt: endDate,
                         location: trimmedLocation,
                         coordinate: coordinate,
-                        privacy: privacy
+                        privacy: privacy,
+                        categories: categories
                     )
                     await loadFeed()
                     self.showCreationToast()
@@ -308,7 +322,8 @@ final class EventFeedViewModel: ObservableObject {
             sharedInviteFriendIDs: invitedFriendIDs,
             privacy: privacy,
             localImageData: localImageData,
-            arrivalTimes: [session.user.id: date]
+            arrivalTimes: [session.user.id: date],
+            categories: categories
         )
 
         appState.createdEvents.insert(event, at: 0)
@@ -327,7 +342,8 @@ final class EventFeedViewModel: ObservableObject {
         coordinate: CLLocationCoordinate2D?,
         privacy: Event.Privacy,
         invitedFriendIDs: [UUID],
-        localImageData: Data?
+        localImageData: Data?,
+        categories: [EventCategory]
     ) {
         let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedLocation = location.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -349,6 +365,7 @@ final class EventFeedViewModel: ObservableObject {
             appState.createdEvents[createdIndex].coordinate = coordinate
             appState.createdEvents[createdIndex].privacy = privacy
             appState.createdEvents[createdIndex].sharedInviteFriendIDs = invitedFriendIDs
+            appState.createdEvents[createdIndex].categories = categories
             appState.createdEvents[createdIndex].arrivalTimes[session.user.id] = appState.createdEvents[createdIndex].arrivalTimes[session.user.id] ?? date
             if let localImageData {
                 appState.createdEvents[createdIndex].localImageData = localImageData
@@ -362,6 +379,7 @@ final class EventFeedViewModel: ObservableObject {
             latestEvents[latestIndex].coordinate = coordinate
             latestEvents[latestIndex].privacy = privacy
             latestEvents[latestIndex].sharedInviteFriendIDs = invitedFriendIDs
+            latestEvents[latestIndex].categories = categories
             latestEvents[latestIndex].arrivalTimes[session.user.id] = latestEvents[latestIndex].arrivalTimes[session.user.id] ?? date
             if let localImageData {
                 latestEvents[latestIndex].localImageData = localImageData
@@ -383,7 +401,8 @@ final class EventFeedViewModel: ObservableObject {
                         endAt: date.addingTimeInterval(60 * 60 * 2),
                         coordinate: coordinate,
                         privacy: privacy,
-                        sharedInviteFriendIDs: invitedFriendIDs
+                        sharedInviteFriendIDs: invitedFriendIDs,
+                        categories: categories
                     )
                     await self.loadFeed()
                     self.showToast(message: "Event updated", systemImage: "pencil.circle.fill")
@@ -540,13 +559,44 @@ final class EventFeedViewModel: ObservableObject {
         let upcomingEvents = latestEvents.filter { $0.date >= now }
         let pastEvents = latestEvents.filter { $0.date < now }
 
-        feedEvents = buildFeedEvents(from: upcomingEvents, friends: friendsCatalog, ascending: true)
+        allFeedEvents = buildFeedEvents(from: upcomingEvents, friends: friendsCatalog, ascending: true)
         pastFeedEvents = buildFeedEvents(from: pastEvents, friends: friendsCatalog, ascending: false)
         if pastFeedEvents.count <= 5 {
             showAllPastEvents = true
         } else if pastFeedEvents.count > 5 {
             // keep user's toggle state
         }
+        applyFilters()
+    }
+
+    private func applyFilters() {
+        var filtered = allFeedEvents
+
+        // Text search filter
+        if !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            let searchLower = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            filtered = filtered.filter { feedEvent in
+                feedEvent.event.title.lowercased().contains(searchLower) ||
+                feedEvent.event.location.lowercased().contains(searchLower)
+            }
+        }
+
+        // Category filter
+        if !selectedCategories.isEmpty {
+            filtered = filtered.filter { feedEvent in
+                feedEvent.event.categories.contains(where: { selectedCategories.contains($0) })
+            }
+        }
+
+        // Distance filter
+        if let maxDist = maxDistance {
+            filtered = filtered.filter { feedEvent in
+                guard let distance = feedEvent.distance else { return false }
+                return distance / 1000 <= maxDist // Convert meters to km
+            }
+        }
+
+        feedEvents = filtered
     }
 
     private func resolveFriend(for id: UUID, in event: Event, lookup: [UUID: Friend]) -> Friend {

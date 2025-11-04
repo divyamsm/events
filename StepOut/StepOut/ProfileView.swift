@@ -557,7 +557,6 @@ final class ProfileViewModel: ObservableObject {
 struct ProfileView: View {
     @EnvironmentObject private var appState: AppState
     private let calendar = ProfileRepository.calendar
-    private let focusMonth = ProfileRepository.focusMonth
     let authManager: AuthenticationManager?
 
     @StateObject private var viewModel: ProfileViewModel
@@ -570,6 +569,7 @@ struct ProfileView: View {
     @State private var showSignOutConfirmation = false
     @State private var pendingRequestsCount = 0
     @State private var showPhoneNumberPrompt = false
+    @State private var focusMonth = Date()
 
     init(authManager: AuthenticationManager? = nil) {
         self.authManager = authManager
@@ -1122,7 +1122,7 @@ struct ProfileView: View {
 
     private func calendarSection(profile: UserProfile) -> some View {
         ProfileCalendarView(
-            month: focusMonth,
+            month: $focusMonth,
             calendar: calendar,
             attendedEvents: profile.attendedEvents,
             onDayTapped: { day, events in
@@ -1234,7 +1234,7 @@ struct ProfileView: View {
 }
 
 private struct ProfileCalendarView: View {
-    let month: Date
+    @Binding var month: Date
     let calendar: Calendar
     let attendedEvents: [AttendedEvent]
     let onDayTapped: (Int, [AttendedEvent]) -> Void
@@ -1243,6 +1243,18 @@ private struct ProfileCalendarView: View {
         let formatter = DateFormatter()
         formatter.dateFormat = "MMMM yyyy"
         return formatter
+    }
+
+    private func previousMonth() {
+        if let newMonth = calendar.date(byAdding: .month, value: -1, to: month) {
+            month = newMonth
+        }
+    }
+
+    private func nextMonth() {
+        if let newMonth = calendar.date(byAdding: .month, value: 1, to: month) {
+            month = newMonth
+        }
     }
 
     private var weekdaySymbols: [String] {
@@ -1297,9 +1309,51 @@ private struct ProfileCalendarView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text(monthFormatter.string(from: month))
-                .font(.title3.bold())
-                .frame(height: 24)
+            HStack {
+                Button(action: previousMonth) {
+                    Image(systemName: "chevron.left")
+                        .font(.title3.weight(.semibold))
+                        .foregroundStyle(
+                            LinearGradient(
+                                colors: [.blue, .purple],
+                                startPoint: .leading,
+                                endPoint: .trailing
+                            )
+                        )
+                        .frame(width: 32, height: 32)
+                        .background(
+                            Circle()
+                                .fill(Color(.tertiarySystemBackground))
+                        )
+                }
+                .buttonStyle(.plain)
+
+                Spacer()
+
+                Text(monthFormatter.string(from: month))
+                    .font(.title3.bold())
+                    .frame(height: 24)
+
+                Spacer()
+
+                Button(action: nextMonth) {
+                    Image(systemName: "chevron.right")
+                        .font(.title3.weight(.semibold))
+                        .foregroundStyle(
+                            LinearGradient(
+                                colors: [.blue, .purple],
+                                startPoint: .leading,
+                                endPoint: .trailing
+                            )
+                        )
+                        .frame(width: 32, height: 32)
+                        .background(
+                            Circle()
+                                .fill(Color(.tertiarySystemBackground))
+                        )
+                }
+                .buttonStyle(.plain)
+            }
 
             VStack(spacing: 12) {
                 // Weekday headers

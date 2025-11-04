@@ -7,6 +7,9 @@ export type Visibility = (typeof visibilityValues)[number];
 export const eventStatusValues = ["going", "interested", "declined"] as const;
 export type AttendanceStatus = (typeof eventStatusValues)[number];
 
+export const eventCategoryValues = ["sports", "food", "study", "party", "gaming", "outdoor", "music", "other"] as const;
+export type EventCategory = (typeof eventCategoryValues)[number];
+
 export interface UserDoc {
   displayName: string;
   phoneNumber?: string | null;
@@ -38,7 +41,8 @@ export const eventSchema = z.object({
   visibility: z.enum(visibilityValues),
   maxGuests: z.number().int().positive().optional().nullable(),
   geo: geoSchema,
-  coverImagePath: z.string().optional().nullable()
+  coverImagePath: z.string().optional().nullable(),
+  categories: z.array(z.enum(eventCategoryValues)).min(1).max(3).default(["other"])
 });
 
 export type EventCreatePayload = z.infer<typeof eventSchema>;
@@ -55,7 +59,8 @@ export const eventUpdateSchema = z
     maxGuests: z.number().int().positive().optional().nullable(),
     geo: geoSchema,
     coverImagePath: z.string().optional().nullable(),
-    sharedInviteFriendIds: z.array(z.string().min(1)).optional()
+    sharedInviteFriendIds: z.array(z.string().min(1)).optional(),
+    categories: z.array(z.enum(eventCategoryValues)).min(1).max(3).optional()
   })
   .superRefine((value, ctx) => {
     const mutableKeys: Array<keyof typeof value> = [
@@ -68,7 +73,8 @@ export const eventUpdateSchema = z
       "maxGuests",
       "geo",
       "coverImagePath",
-      "sharedInviteFriendIds"
+      "sharedInviteFriendIds",
+      "categories"
     ];
     const hasUpdate = mutableKeys.some((key) => value[key] !== undefined);
     if (!hasUpdate) {
@@ -155,6 +161,7 @@ export interface EventDoc {
     lng: number;
   } | null;
   coverImagePath?: string | null;
+  categories: EventCategory[];
   createdAt: Timestamp;
   updatedAt: Timestamp;
   canceled: boolean;
@@ -198,12 +205,25 @@ export const feedQuerySchema = z
     startAfter: z.string().optional(),
     visibility: z.enum(visibilityValues).optional(),
     from: z.string().datetime({ offset: true }).optional(),
-    to: z.string().datetime({ offset: true }).optional()
+    to: z.string().datetime({ offset: true }).optional(),
+    searchText: z.string().max(100).optional(),
+    categories: z.array(z.enum(eventCategoryValues)).optional(),
+    maxDistance: z.number().positive().optional(),
+    userLat: z.number().min(-90).max(90).optional(),
+    userLng: z.number().min(-180).max(180).optional()
   })
   .transform((value) => ({
     ...value,
     limit: value.limit ?? 20
-  }));
+  }))
+  .superRefine((value, ctx) => {
+    if (value.maxDistance && (!value.userLat || !value.userLng)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "userLat and userLng must be provided when using maxDistance filter."
+      });
+    }
+  });
 
 export type FeedQuery = z.infer<typeof feedQuerySchema>;
 

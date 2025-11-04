@@ -1,6 +1,36 @@
 import Foundation
 import CoreLocation
 
+enum EventCategory: String, Hashable, CaseIterable, Identifiable {
+    case sports
+    case food
+    case study
+    case party
+    case gaming
+    case outdoor
+    case music
+    case other
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        rawValue.capitalized
+    }
+
+    var icon: String {
+        switch self {
+        case .sports: return "figure.run"
+        case .food: return "fork.knife"
+        case .study: return "book.fill"
+        case .party: return "party.popper.fill"
+        case .gaming: return "gamecontroller.fill"
+        case .outdoor: return "leaf.fill"
+        case .music: return "music.note"
+        case .other: return "star.fill"
+        }
+    }
+}
+
 struct Friend: Identifiable, Hashable {
     let id: UUID
     var name: String
@@ -47,6 +77,7 @@ struct Event: Identifiable, Hashable {
     var localImageData: Data?
     var arrivalTimes: [UUID: Date]
     var backendIdentifier: String?
+    var categories: [EventCategory]
 
     init(
         id: UUID = UUID(),
@@ -62,7 +93,8 @@ struct Event: Identifiable, Hashable {
         privacy: Privacy = .public,
         localImageData: Data? = nil,
         arrivalTimes: [UUID: Date] = [:],
-        backendIdentifier: String? = nil
+        backendIdentifier: String? = nil,
+        categories: [EventCategory] = [.other]
     ) {
         self.id = id
         self.title = title
@@ -78,6 +110,7 @@ struct Event: Identifiable, Hashable {
         self.localImageData = localImageData
         self.arrivalTimes = arrivalTimes
         self.backendIdentifier = backendIdentifier
+        self.categories = categories
     }
     static func == (lhs: Event, rhs: Event) -> Bool {
         lhs.id == rhs.id

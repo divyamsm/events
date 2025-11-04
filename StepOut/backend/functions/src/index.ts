@@ -48,6 +48,19 @@ function requireAuth<T>(request: CallableRequest<T>): string {
   return uid;
 }
 
+// Calculate distance between two coordinates using Haversine formula (returns distance in km)
+function calculateDistance(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const R = 6371; // Earth's radius in km
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLng = (lng2 - lng1) * Math.PI / 180;
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+    Math.sin(dLng / 2) * Math.sin(dLng / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+}
+
 async function resolveEventDocument(
   eventId: string,
   variants: string[] = []
@@ -223,8 +236,9 @@ async function buildProfilePayload(userId: string) {
 export const createEvent = onCall(async (request) => {
   // Require authentication - use authenticated user's UID as ownerId
   const uid = requireAuth(request);
+  console.log("[Function] createEvent RAW request.data.categories", request.data?.categories);
   const payload: EventCreatePayload = parseRequest(eventSchema, request.data);
-  console.log("[Function] createEvent payload", payload, "authUid:", uid);
+  console.log("[Function] createEvent PARSED payload.categories", payload.categories);
   if (payload.endAt <= payload.startAt) {
     throw new HttpsError("invalid-argument", "endAt must be after startAt.");
   }
@@ -243,6 +257,7 @@ export const createEvent = onCall(async (request) => {
     maxGuests: payload.maxGuests ?? null,
     geo: payload.geo ?? null,
     coverImagePath: payload.coverImagePath ?? null,
+    categories: payload.categories ?? ["other"],
     createdAt: now,
     updatedAt: now,
     canceled: false
@@ -340,7 +355,48 @@ export const listFeed = onCall(async (request) => {
     }
   });
 
-  const snap = { docs: Array.from(eventMap.values()) };
+  // Apply filters
+  let filteredDocs = Array.from(eventMap.values());
+
+  // Filter by categories
+  if (queryParams.categories && queryParams.categories.length > 0) {
+    filteredDocs = filteredDocs.filter(doc => {
+      const data = doc.data();
+      const eventCategories = data.categories || ["other"];
+      return eventCategories.some((cat: string) => queryParams.categories!.includes(cat as any));
+    });
+  }
+
+  // Filter by text search (case-insensitive search in title, description, location)
+  if (queryParams.searchText && queryParams.searchText.trim()) {
+    const searchLower = queryParams.searchText.trim().toLowerCase();
+    filteredDocs = filteredDocs.filter(doc => {
+      const data = doc.data();
+      const titleMatch = (data.title || "").toLowerCase().includes(searchLower);
+      const descMatch = (data.description || "").toLowerCase().includes(searchLower);
+      const locMatch = (data.location || "").toLowerCase().includes(searchLower);
+      return titleMatch || descMatch || locMatch;
+    });
+  }
+
+  // Filter by distance (if user location and maxDistance provided)
+  if (queryParams.maxDistance && queryParams.userLat && queryParams.userLng) {
+    filteredDocs = filteredDocs.filter(doc => {
+      const data = doc.data();
+      if (!data.geo || !data.geo.lat || !data.geo.lng) {
+        return false; // Exclude events without location
+      }
+      const distance = calculateDistance(
+        queryParams.userLat!,
+        queryParams.userLng!,
+        data.geo.lat,
+        data.geo.lng
+      );
+      return distance <= queryParams.maxDistance!;
+    });
+  }
+
+  const snap = { docs: filteredDocs };
   const attendeeIds = new Set<string>();
 
   // Build reverse mapping: Firebase Auth UID -> UUID
@@ -414,13 +470,19 @@ export const listFeed = onCall(async (request) => {
         invitedFriendIds: data.invitedFriendIds ?? [],
         sharedInviteFriendIds: sharedUuids,  // Send UUIDs, not Firebase Auth UIDs
         arrivalTimes: arrivalTimesUuids,  // Send UUIDs as keys, not Firebase Auth UIDs
-        geo: data.geo ?? null
+        geo: data.geo ?? null,
+        categories: data.categories ?? ["other"]
       };
 
       if (data.title === "Bharath" || data.title === "Bharath 2") {
         console.log("[Function] listFeed 🔍 Event:", JSON.stringify(eventResponse, null, 2));
         console.log("[Function] listFeed 🔍 Raw attendingFriendIds (Auth UIDs):", attendingFriendIds);
         console.log("[Function] listFeed 🔍 Converted attendingUuids:", attendingUuids);
+      }
+
+      if (data.title === "Text") {
+        console.log("[Function] listFeed 🔍 Event 'Text' - data.categories from Firestore:", data.categories);
+        console.log("[Function] listFeed 🔍 Event 'Text' - eventResponse.categories:", eventResponse.categories);
       }
 
       return eventResponse;
@@ -616,6 +678,9 @@ export const updateEvent = onCall(async (request) => {
   if (payload.sharedInviteFriendIds !== undefined) {
     const normalized = Array.from(new Set(payload.sharedInviteFriendIds.map((id) => id.toUpperCase())));
     updates.sharedInviteFriendIds = normalized;
+  }
+  if (payload.categories !== undefined) {
+    updates.categories = payload.categories;
   }
 
   console.log("[Function] updateEvent applying", { canonicalId, updates });

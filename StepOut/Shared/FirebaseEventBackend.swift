@@ -41,7 +41,8 @@ final class FirebaseEventBackend: EventBackend {
         endAt: Date,
         location: String,
         coordinate: CLLocationCoordinate2D?,
-        privacy: Event.Privacy
+        privacy: Event.Privacy,
+        categories: [EventCategory] = [.other]
     ) async throws -> UUID {
         let callable = functions.httpsCallable("createEvent")
 
@@ -53,7 +54,8 @@ final class FirebaseEventBackend: EventBackend {
             "endAt": ISO8601DateFormatter().string(from: endAt),
             "location": location,
             "visibility": privacy == .public ? "public" : "invite-only",
-            "maxGuests": NSNull()
+            "maxGuests": NSNull(),
+            "categories": categories.map { $0.rawValue }
         ]
 
         if let coordinate {
@@ -63,7 +65,8 @@ final class FirebaseEventBackend: EventBackend {
             ]
         }
 
-        print("[Backend] calling createEvent")
+        print("[Backend] calling createEvent with categories:", categories)
+        print("[Backend] payload categories:", payload["categories"] as Any)
         let result: HTTPSCallableResult
         do {
             result = try await callable.call(payload)
@@ -112,7 +115,8 @@ final class FirebaseEventBackend: EventBackend {
         endAt: Date,
         coordinate: CLLocationCoordinate2D?,
         privacy: Event.Privacy,
-        sharedInviteFriendIDs: [UUID]
+        sharedInviteFriendIDs: [UUID],
+        categories: [EventCategory]
     ) async throws {
         let callable = functions.httpsCallable("updateEvent")
         let canonicalID = eventIdentifierMap[eventID] ?? eventID.uuidString.uppercased()
@@ -124,7 +128,8 @@ final class FirebaseEventBackend: EventBackend {
             "visibility": privacy == .public ? "public" : "invite-only",
             "startAt": ISO8601DateFormatter().string(from: startAt),
             "endAt": ISO8601DateFormatter().string(from: endAt),
-            "sharedInviteFriendIds": sharedInviteFriendIDs.map { $0.uuidString.uppercased() }
+            "sharedInviteFriendIds": sharedInviteFriendIDs.map { $0.uuidString.uppercased() },
+            "categories": categories.map { $0.rawValue }
         ]
 
         payload["geo"] = coordinate.map {
@@ -253,6 +258,13 @@ final class FirebaseEventBackend: EventBackend {
             let privacyString = dict["visibility"] as? String ?? "public"
             let privacy: Event.Privacy = privacyString == "public" ? .public : .private
 
+            let categoriesStrings = (dict["categories"] as? [String]) ?? ["other"]
+            let categories = categoriesStrings.compactMap { EventCategory(rawValue: $0) }
+
+            if title == "Text" {
+                print("[Backend] 🔍 Parsing event '\(title)' - categoriesStrings:", categoriesStrings, "parsed:", categories)
+            }
+
             return Event(
                 id: uuid,
                 title: title,
@@ -267,7 +279,8 @@ final class FirebaseEventBackend: EventBackend {
                 privacy: privacy,
                 localImageData: nil,
                 arrivalTimes: arrivalTimes,
-                backendIdentifier: canonical
+                backendIdentifier: canonical,
+                categories: categories.isEmpty ? [.other] : categories
             )
         }
     }
