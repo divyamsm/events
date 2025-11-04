@@ -66,5 +66,11 @@
 	<string>StepOut - Events &amp; Friends needs access to your contacts to help you find friends who are already using the app and invite others to join.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
 	<string>StepOut needs permission to save event photos to your photo library.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>StepOut needs access to your photos to set event cover images and share photos from your events.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>StepOut needs camera access to capture event photos and create memorable moments with friends.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>StepOut uses your location to show nearby events and help you set event locations.</string>
 </dict>
 </plist>
