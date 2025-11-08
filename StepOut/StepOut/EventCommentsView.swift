@@ -1,5 +1,9 @@
 import SwiftUI
 
+#if canImport(FirebaseFirestore)
+import FirebaseFirestore
+#endif
+
 struct EventCommentsView: View {
     let eventId: String
     let isEventOwner: Bool
@@ -32,16 +36,19 @@ struct EventCommentsView: View {
 
     private var commentsList: some View {
         ScrollView {
-            LazyVStack(spacing: 16) {
+            LazyVStack(alignment: .leading, spacing: 16) {
                 if viewModel.comments.isEmpty && viewModel.isLoadingComments {
                     ProgressView("Loading comments...")
                         .padding()
+                        .frame(maxWidth: .infinity)
                 } else if viewModel.comments.isEmpty {
                     emptyStateView
+                        .frame(maxWidth: .infinity)
                 } else {
                     ForEach(viewModel.comments) { comment in
                         CommentRow(
                             comment: comment,
+                            currentUserId: viewModel.currentUserId,
                             canDelete: viewModel.canDelete(comment: comment, isEventOwner: isEventOwner),
                             onDelete: {
                                 _Concurrency.Task {
@@ -53,6 +60,7 @@ struct EventCommentsView: View {
                 }
             }
             .padding()
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
@@ -105,9 +113,17 @@ struct EventCommentsView: View {
 
 struct CommentRow: View {
     let comment: EventComment
+    let currentUserId: String
     let canDelete: Bool
     let onDelete: () -> Void
     @State private var showingDeleteConfirm = false
+    @State private var showingReportMenu = false
+    @State private var showingActionsSheet = false
+    @State private var reportSubmitted = false
+
+    var isOwnComment: Bool {
+        comment.userId == currentUserId
+    }
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
@@ -143,25 +159,71 @@ struct CommentRow: View {
                     .font(.body)
             }
 
-            Spacer()
-
+        }
+        .contentShape(Rectangle())
+        .onLongPressGesture {
+            showingActionsSheet = true
+        }
+        .confirmationDialog("Comment Actions", isPresented: $showingActionsSheet) {
             if canDelete {
-                Button(role: .destructive) {
+                Button("Delete Comment", role: .destructive) {
                     showingDeleteConfirm = true
-                } label: {
-                    Image(systemName: "trash")
-                        .font(.caption)
-                        .foregroundColor(.red)
-                }
-                .confirmationDialog("Delete Comment", isPresented: $showingDeleteConfirm) {
-                    Button("Delete Comment", role: .destructive) {
-                        onDelete()
-                    }
-                } message: {
-                    Text("Are you sure you want to delete this comment?")
                 }
             }
+            
+            if !isOwnComment {
+                Button("Report Comment", role: .destructive) {
+                    showingReportMenu = true
+                }
+            }
+            
+            Button("Cancel", role: .cancel) {}
         }
+        .confirmationDialog("Delete Comment", isPresented: $showingDeleteConfirm) {
+            Button("Delete Comment", role: .destructive) {
+                onDelete()
+            }
+        } message: {
+            Text("Are you sure you want to delete this comment?")
+        }
+        .alert("Report Comment", isPresented: $showingReportMenu) {
+            Button("Cancel", role: .cancel) { }
+            Button("Report as Inappropriate", role: .destructive) {
+                reportComment()
+            }
+        } message: {
+            Text("Report this comment for inappropriate content? We will review it within 24 hours.")
+        }
+        .alert("Report Submitted", isPresented: $reportSubmitted) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text("Thank you for your report. We will review this comment within 24 hours.")
+        }
+    }
+
+    private func reportComment() {
+        #if canImport(FirebaseFirestore)
+        Task {
+            do {
+                let db = Firestore.firestore()
+
+                // Create the report
+                try await db.collection("reports").addDocument(data: [
+                    "type": "comment",
+                    "commentId": comment.id,
+                    "reportedBy": currentUserId,
+                    "reason": "inappropriate_content",
+                    "timestamp": FieldValue.serverTimestamp()
+                ])
+
+                await MainActor.run {
+                    reportSubmitted = true
+                }
+            } catch {
+                print("Error reporting comment: \(error.localizedDescription)")
+            }
+        }
+        #endif
     }
 }
 

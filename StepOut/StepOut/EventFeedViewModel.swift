@@ -7,6 +7,9 @@ import FirebaseAuth
 #if canImport(FirebaseFunctions)
 import FirebaseFunctions
 #endif
+#if canImport(FirebaseFirestore)
+import FirebaseFirestore
+#endif
 
 @MainActor
 final class EventFeedViewModel: ObservableObject {
@@ -25,7 +28,8 @@ final class EventFeedViewModel: ObservableObject {
         }
 
         let event: Event
-        let badges: [FriendBadge]
+        let badges: [FriendBadge]  // All badges including guests (for detail view)
+        let cardBadges: [FriendBadge]  // Only non-guest badges (for card view)
         let distance: CLLocationDistance?
         let isAttending: Bool
         let attendingCount: Int
@@ -63,6 +67,9 @@ final class EventFeedViewModel: ObservableObject {
     }
     @Published var showFilters: Bool = false
     @Published private(set) var feedEvents: [FeedEvent] = []
+    @Published private(set) var hiddenEventIDs: Set<String> = []
+    @Published private(set) var hiddenEventTimestamps: [String: Date] = [:]
+    @Published private(set) var blockedUserIDs: Set<String> = []
 
     var visiblePastFeedEvents: [FeedEvent] {
         showAllPastEvents ? pastFeedEvents : Array(pastFeedEvents.prefix(5))
@@ -74,6 +81,7 @@ final class EventFeedViewModel: ObservableObject {
     private var friendsCatalog: [Friend] = []
     private var latestEvents: [Event] = []
     private var authObserver: NSObjectProtocol?
+    private var refreshFeedObserver: NSObjectProtocol?
 
     var friendOptions: [Friend] {
         friendsCatalog
@@ -90,16 +98,41 @@ final class EventFeedViewModel: ObservableObject {
             Task { await self.loadFeed() }
         }
 #endif
+        
+        // Listen for feed refresh requests (e.g., after unblocking a user)
+        refreshFeedObserver = NotificationCenter.default.addObserver(forName: NSNotification.Name("RefreshFeed"), object: nil, queue: .main) { [weak self] _ in
+            guard let self else { return }
+            print("[EventFeedViewModel] 🔄 Received RefreshFeed notification, reloading feed...")
+            Task { await self.loadFeed() }
+        }
     }
 
     deinit {
+        print("[EventFeedViewModel] 💀 DEINIT called for session: \(session.firebaseUID ?? "nil")")
+        print("[EventFeedViewModel] 💀   User name: \(session.user.name)")
         if let authObserver {
             NotificationCenter.default.removeObserver(authObserver)
+        }
+        if let refreshFeedObserver {
+            NotificationCenter.default.removeObserver(refreshFeedObserver)
         }
     }
 
     func updateSession(_ newSession: UserSession) {
         self.session = newSession
+
+        // Clear cached data from previous user
+        hiddenEventIDs.removeAll()
+        hiddenEventTimestamps.removeAll()
+        blockedUserIDs.removeAll()
+        friendsCatalog.removeAll()
+        latestEvents.removeAll()
+        allFeedEvents.removeAll()
+        feedEvents.removeAll()
+        pastFeedEvents.removeAll()
+        appState.createdEvents.removeAll()
+        appState.attendingEventIDs.removeAll()
+
         Task {
             await loadFeed()
         }
@@ -109,6 +142,9 @@ final class EventFeedViewModel: ObservableObject {
         guard isLoading == false else { return }
         isLoading = true
         defer { isLoading = false }
+
+        // Load hidden events and blocked users first
+        await loadHiddenEventsAndBlockedUsers()
 
         do {
             let snapshot = try await backend.fetchFeed(for: session.user, near: session.currentLocation)
@@ -149,8 +185,18 @@ final class EventFeedViewModel: ObservableObject {
             persistWidgetSnapshot()
             presentError = nil
         } catch {
-            print("[Feed] fetch failed: \(error.localizedDescription)")
-            presentError = "Couldn't refresh events. Please try again."
+            print("[Feed] ❌ Fetch failed: \(error.localizedDescription)")
+            
+            // Check if it's a network error
+            if let nsError = error as NSError?, nsError.domain == "NSURLErrorDomain" {
+                print("[Feed] 🌐 Network error detected, will retry on next refresh")
+                presentError = "Network connection issue. Pull to refresh to try again."
+            } else if error.localizedDescription.contains("Stream removed") || error.localizedDescription.contains("Connection reset") {
+                print("[Feed] 🔄 Firebase stream error (temporary), ignoring")
+                // Don't show error for temporary stream issues
+            } else {
+                presentError = "Couldn't refresh events. Please try again."
+            }
         }
     }
 
@@ -195,6 +241,12 @@ final class EventFeedViewModel: ObservableObject {
     }
 
     func updateAttendance(for feedEvent: FeedEvent, going: Bool, arrivalTime: Date?) {
+        print("[EventFeedViewModel] 🎯 updateAttendance called")
+        print("[EventFeedViewModel] 🎯   Current session user ID: \(session.user.id)")
+        print("[EventFeedViewModel] 🎯   Current session firebaseUID: \(session.firebaseUID ?? "nil")")
+        print("[EventFeedViewModel] 🎯   Event: \(feedEvent.event.title)")
+        print("[EventFeedViewModel] 🎯   Going: \(going)")
+        
         let previousAttending = appState.attendingEventIDs
         let previousCreatedEvents = appState.createdEvents
         let previousLatestEvents = latestEvents
@@ -464,12 +516,101 @@ final class EventFeedViewModel: ObservableObject {
         }
     }
 
+    private func loadHiddenEventsAndBlockedUsers() async {
+        #if canImport(FirebaseFirestore)
+        guard let firebaseUID = session.firebaseUID else {
+            print("[EventFeedViewModel] ⚠️ No Firebase UID available")
+            return
+        }
+        
+        print("[EventFeedViewModel] 📂 Loading hidden/blocked for firebaseUID: \(firebaseUID)")
+
+        do {
+            let db = Firestore.firestore()
+            let now = Date()
+            let twentyFourHoursAgo = now.addingTimeInterval(-24 * 60 * 60)
+
+            // Load hidden events with timestamps
+            // Use server source to avoid cached queries from old sessions
+            let hiddenSnapshot = try await db.collection("users")
+                .document(firebaseUID)
+                .collection("hiddenEvents")
+                .getDocuments(source: .server)
+
+            var validHiddenEventIDs: Set<String> = []
+            var timestamps: [String: Date] = [:]
+            var expiredEventIDs: [String] = []
+
+            for doc in hiddenSnapshot.documents {
+                let eventId = doc.documentID
+
+                // Get the timestamp
+                if let timestamp = doc.data()["hiddenAt"] as? Timestamp {
+                    let hiddenDate = timestamp.dateValue()
+
+                    // Check if it's been more than 24 hours
+                    if hiddenDate > twentyFourHoursAgo {
+                        // Still within 24 hours - keep hidden
+                        validHiddenEventIDs.insert(eventId)
+                        timestamps[eventId] = hiddenDate
+                    } else {
+                        // Expired - mark for deletion
+                        expiredEventIDs.append(eventId)
+                    }
+                } else {
+                    // No timestamp - keep it hidden (safety fallback)
+                    validHiddenEventIDs.insert(eventId)
+                }
+            }
+
+            hiddenEventIDs = validHiddenEventIDs
+            hiddenEventTimestamps = timestamps
+
+            // Clean up expired hidden events from Firebase
+            for eventId in expiredEventIDs {
+                try? await db.collection("users")
+                    .document(firebaseUID)
+                    .collection("hiddenEvents")
+                    .document(eventId)
+                    .delete()
+            }
+
+            // Load blocked users
+            // Use server source to avoid cached queries from old sessions
+            let blockedSnapshot = try await db.collection("users")
+                .document(firebaseUID)
+                .collection("blocked")
+                .getDocuments(source: .server)
+
+            blockedUserIDs = Set(blockedSnapshot.documents.map { $0.documentID })
+
+            print("[EventFeedViewModel] 📛 Loaded \(hiddenEventIDs.count) hidden events (\(expiredEventIDs.count) expired/removed) and \(blockedUserIDs.count) blocked users")
+        } catch {
+            print("[EventFeedViewModel] ⚠️ Error loading hidden events/blocked users: \(error.localizedDescription)")
+        }
+        #endif
+    }
+
     private func buildFeedEvents(from events: [Event], friends: [Friend], ascending: Bool) -> [FeedEvent] {
         let createdIDs = Set(appState.createdEvents.map { $0.id })
         let friendLookup = Dictionary(uniqueKeysWithValues: friends.map { ($0.id, $0) })
 
+        // Filter out hidden events and events from blocked users
         let visibleEvents = events.filter { event in
-            event.privacy == .public || createdIDs.contains(event.id) || event.sharedInviteFriendIDs.contains(session.user.id)
+            // Check if event is hidden
+            guard !hiddenEventIDs.contains(event.id.uuidString) else {
+                print("[EventFeedViewModel] 📛 Filtering out hidden event: \(event.title)")
+                return false
+            }
+
+            // Check if event owner is blocked
+            if let ownerId = event.ownerId, blockedUserIDs.contains(ownerId) {
+                print("[EventFeedViewModel] 🚫 Filtering out event from blocked user: \(event.title)")
+                return false
+            }
+
+            // Apply privacy filters
+            return event.privacy == .public || createdIDs.contains(event.id) || event.sharedInviteFriendIDs.contains(session.user.id)
         }
 
         let enriched = visibleEvents.map { event -> FeedEvent in
@@ -524,9 +665,13 @@ final class EventFeedViewModel: ObservableObject {
                 print("[EventFeedViewModel] 🔍 FINAL badges: \(badges.map { "\($0.friend.name) (\($0.role))" })")
             }
 
+            // Filter out guests for card display (guests have names like "Guest XXXX")
+            let cardBadges = badges.filter { !$0.friend.name.starts(with: "Guest") }
+            
             return FeedEvent(
                 event: event,
-                badges: badges,
+                badges: badges,  // All badges including guests
+                cardBadges: cardBadges,  // Only non-guest badges for card
                 distance: distance,
                 isAttending: isAttending,
                 attendingCount: attendingCount,

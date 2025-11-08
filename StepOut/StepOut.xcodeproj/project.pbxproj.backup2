@@ -57,9 +57,6 @@
 		FF9C0AA12F0D0001000AAA01 /* FirebaseEventBackend.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF9C0AA02F0D0001000AAA00 /* FirebaseEventBackend.swift */; };
 		FF9C0AA32F0D0132000AAA02 /* Notification+Extensions.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF9C0AA22F0D0132000AAA02 /* Notification+Extensions.swift */; };
 		FFB0ABCD2F0CDEF100000101 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = FFB0ABCD2F0CDEF100000001 /* AppDelegate.swift */; };
-		AABLOCK1111111111111111 /* BlockedUsersManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = BBBLOCK1111111111111111 /* BlockedUsersManager.swift */; };
-		AABLOCK2222222222222222 /* BlockedUsersView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BBBLOCK2222222222222222 /* BlockedUsersView.swift */; };
-		AATERMS3333333333333333 /* TermsOfService.swift in Sources */ = {isa = PBXBuildFile; fileRef = BBTERMS3333333333333333 /* TermsOfService.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -130,9 +127,6 @@
 		FF9C0AA02F0D0001000AAA00 /* FirebaseEventBackend.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FirebaseEventBackend.swift; sourceTree = "<group>"; };
 		FF9C0AA22F0D0132000AAA02 /* Notification+Extensions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Notification+Extensions.swift"; sourceTree = "<group>"; };
 		FFB0ABCD2F0CDEF100000001 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
-		BBBLOCK1111111111111111 /* BlockedUsersManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BlockedUsersManager.swift; sourceTree = "<group>"; };
-		BBBLOCK2222222222222222 /* BlockedUsersView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BlockedUsersView.swift; sourceTree = "<group>"; };
-		BBTERMS3333333333333333 /* TermsOfService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TermsOfService.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -220,9 +214,6 @@
 				C2FE96367704DFA1A25760A2 /* EventPhotosView.swift */,
 				97E2931C321F22646D4D5035 /* EventCommentsView.swift */,
 				B6A2F53817229565D50548F7 /* EventPhotosViewModel.swift */,
-				BBBLOCK1111111111111111 /* BlockedUsersManager.swift */,
-				BBBLOCK2222222222222222 /* BlockedUsersView.swift */,
-				BBTERMS3333333333333333 /* TermsOfService.swift */,
 			);
 			path = StepOut;
 			sourceTree = "<group>";
@@ -397,9 +388,6 @@
 				69317C97439CB323DB3B8F38 /* FirebasePhotoBackend.swift in Sources */,
 				3F548E229DE535447325D84C /* EventPhotoData.swift in Sources */,
 				BAE91184D9AF5A14BA16450D /* CacheManager.swift in Sources */,
-				AABLOCK1111111111111111 /* BlockedUsersManager.swift in Sources */,
-				AABLOCK2222222222222222 /* BlockedUsersView.swift in Sources */,
-				AATERMS3333333333333333 /* TermsOfService.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

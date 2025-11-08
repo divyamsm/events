@@ -53,6 +53,8 @@ struct OnboardingFlowView: View {
         switch step {
         case .splash:
             SplashView()
+        case .terms:
+            termsAcceptance
         case .phone:
             phoneCapture
         case .otp:
@@ -61,6 +63,80 @@ struct OnboardingFlowView: View {
             contactsPermission
         case .interests:
             interestSelection
+        }
+    }
+
+    private var termsAcceptance: some View {
+        VStack(alignment: .leading, spacing: 28) {
+            OnboardingHeader(
+                title: "Terms of Service",
+                subtitle: "Please review and accept our terms to continue"
+            )
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    Text("By using StepOut, you agree to:")
+                        .font(.body.weight(.medium))
+
+                    termsPoint("Use the app responsibly and respectfully")
+                    termsPoint("Not post offensive, harmful, or illegal content")
+                    termsPoint("Not harass, bully, or abuse other users")
+                    termsPoint("Not spam or post misleading information")
+                    termsPoint("Not impersonate others or create fake accounts")
+
+                    Text("Zero Tolerance Policy")
+                        .font(.body.weight(.bold))
+                        .padding(.top, 8)
+
+                    Text("StepOut has ZERO TOLERANCE for objectionable content including hate speech, graphic violence, explicit content, harassment, or abusive behavior. Violations will result in immediate account termination.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+
+                    Text("Content Moderation")
+                        .font(.body.weight(.bold))
+                        .padding(.top, 8)
+
+                    Text("We actively moderate user content. You can report inappropriate content or users. All reports are reviewed within 24 hours.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+
+                    Text("Contact")
+                        .font(.body.weight(.bold))
+                        .padding(.top, 8)
+
+                    Text("Report issues: bharathraghunath70@gmail.com")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
+                .padding()
+                .background(
+                    RoundedRectangle(cornerRadius: 18)
+                        .fill(Color(.secondarySystemBackground))
+                )
+            }
+            .frame(height: 320)
+
+            Spacer(minLength: 12)
+
+            PrimaryButton(
+                title: "I Agree to Terms of Service",
+                isEnabled: true
+            ) {
+                // Mark onboarding as complete and go to main app
+                // where EmailAuthView will handle authentication
+                appState.isOnboarded = true
+            }
+        }
+    }
+
+    private func termsPoint(_ text: String) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: "checkmark.circle.fill")
+                .font(.caption)
+                .foregroundStyle(.green)
+            Text(text)
+                .font(.callout)
+                .foregroundStyle(.secondary)
         }
     }
 
@@ -297,19 +373,19 @@ struct OnboardingFlowView: View {
 
     private func advanceFromSplash() {
         guard step == .splash else { return }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.4) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
             withAnimation {
-                step = .contacts
+                step = .terms
             }
         }
     }
 
     private enum Step: CaseIterable {
-        case splash, phone, otp, contacts, interests
+        case splash, terms, phone, otp, contacts, interests
 
         var shouldShowProgress: Bool {
             switch self {
-            case .splash, .phone, .otp:
+            case .splash, .terms, .phone, .otp:
                 return false
             case .contacts, .interests:
                 return true
@@ -318,7 +394,7 @@ struct OnboardingFlowView: View {
 
         var progressIndex: Int {
             switch self {
-            case .splash:
+            case .splash, .terms:
                 return 0
             case .contacts:
                 return 0

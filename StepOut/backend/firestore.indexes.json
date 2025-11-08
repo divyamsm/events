@@ -131,6 +131,36 @@
         { "fieldPath": "eventId", "order": "ASCENDING" },
         { "fieldPath": "createdAt", "order": "ASCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "reports",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "reportedBy", "order": "ASCENDING" },
+        { "fieldPath": "timestamp", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "reports",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "type", "order": "ASCENDING" },
+        { "fieldPath": "timestamp", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "hiddenEvents",
+      "queryScope": "COLLECTION_GROUP",
+      "fields": [
+        { "fieldPath": "hiddenAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "blocked",
+      "queryScope": "COLLECTION_GROUP",
+      "fields": [
+        { "fieldPath": "blockedAt", "order": "DESCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []

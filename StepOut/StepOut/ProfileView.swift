@@ -653,6 +653,7 @@ struct ProfileView: View {
         .sheet(isPresented: $showSettings) {
             ModernSettingsView(
                 appState: appState,
+                authManager: authManager,
                 showSignOutConfirmation: $showSignOutConfirmation,
                 onDismiss: { showSettings = false },
                 onSignOut: {
@@ -2205,7 +2206,9 @@ private struct EventCard: View {
 // MARK: - Modern Settings View
 private struct ModernSettingsView: View {
     @ObservedObject var appState: AppState
+    let authManager: AuthenticationManager?
     @Binding var showSignOutConfirmation: Bool
+    @State private var showDeleteAccountConfirmation = false
     let onDismiss: () -> Void
     let onSignOut: () -> Void
 
@@ -2324,6 +2327,65 @@ private struct ModernSettingsView: View {
                             .buttonStyle(.plain)
                         }
 
+                        // Safety & Privacy Section
+                        ModernSettingsSection(title: "Safety & Privacy", icon: "hand.raised.fill", iconGradient: [.purple, .pink]) {
+                            NavigationLink {
+                                if let currentUserId = authManager?.currentSession?.firebaseUID {
+                                    BlockedUsersView(
+                                        currentUserId: currentUserId,
+                                        onUnblock: {
+                                            print("[ModernSettingsView] 🔄 User unblocked, triggering feed refresh")
+                                            // Post notification to refresh feed
+                                            NotificationCenter.default.post(name: NSNotification.Name("RefreshFeed"), object: nil)
+                                        }
+                                    )
+                                } else {
+                                    Text("Unable to load blocked users")
+                                        .foregroundColor(.secondary)
+                                }
+                            } label: {
+                                HStack(spacing: 12) {
+                                    ZStack {
+                                        Circle()
+                                            .fill(
+                                                LinearGradient(
+                                                    colors: [.purple.opacity(0.2), .pink.opacity(0.2)],
+                                                    startPoint: .topLeading,
+                                                    endPoint: .bottomTrailing
+                                                )
+                                            )
+                                            .frame(width: 40, height: 40)
+
+                                        Image(systemName: "hand.raised.slash.fill")
+                                            .font(.system(size: 16))
+                                            .foregroundStyle(
+                                                LinearGradient(
+                                                    colors: [.purple, .pink],
+                                                    startPoint: .topLeading,
+                                                    endPoint: .bottomTrailing
+                                                )
+                                            )
+                                    }
+
+                                    Text("Blocked Users")
+                                        .font(.body.weight(.medium))
+                                        .foregroundStyle(.primary)
+
+                                    Spacer()
+
+                                    Image(systemName: "chevron.right")
+                                        .font(.caption.weight(.semibold))
+                                        .foregroundStyle(.tertiary)
+                                }
+                                .padding(16)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                        .fill(Color(.tertiarySystemBackground))
+                                )
+                            }
+                            .buttonStyle(.plain)
+                        }
+
                         // Account Section
                         ModernSettingsSection(title: "Account", icon: "person.crop.circle.fill", iconGradient: [.red, .orange]) {
                             Button(action: { showSignOutConfirmation = true }) {
@@ -2367,6 +2429,49 @@ private struct ModernSettingsView: View {
                                 )
                             }
                             .buttonStyle(.plain)
+
+                            // Delete Account Button
+                            Button(action: { showDeleteAccountConfirmation = true }) {
+                                HStack(spacing: 12) {
+                                    ZStack {
+                                        Circle()
+                                            .fill(
+                                                LinearGradient(
+                                                    colors: [.red.opacity(0.3), .pink.opacity(0.3)],
+                                                    startPoint: .topLeading,
+                                                    endPoint: .bottomTrailing
+                                                )
+                                            )
+                                            .frame(width: 40, height: 40)
+
+                                        Image(systemName: "trash.fill")
+                                            .font(.system(size: 16))
+                                            .foregroundStyle(
+                                                LinearGradient(
+                                                    colors: [.red, .pink],
+                                                    startPoint: .topLeading,
+                                                    endPoint: .bottomTrailing
+                                                )
+                                            )
+                                    }
+
+                                    Text("Delete Account")
+                                        .font(.body.weight(.medium))
+                                        .foregroundStyle(.red)
+
+                                    Spacer()
+
+                                    Image(systemName: "chevron.right")
+                                        .font(.caption.weight(.semibold))
+                                        .foregroundStyle(.tertiary)
+                                }
+                                .padding(16)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                        .fill(Color(.tertiarySystemBackground))
+                                )
+                            }
+                            .buttonStyle(.plain)
                         }
                     }
                     .padding(.horizontal, 20)
@@ -2389,7 +2494,54 @@ private struct ModernSettingsView: View {
                     }
                 }
             }
+            .alert("Delete Account", isPresented: $showDeleteAccountConfirmation) {
+                Button("Cancel", role: .cancel) { }
+                Button("Delete", role: .destructive) {
+                    deleteAccount()
+                }
+            } message: {
+                Text("Are you sure you want to permanently delete your account? This action cannot be undone. All your events, profile data, and connections will be permanently removed.")
+            }
         }
+    }
+
+    private func deleteAccount() {
+        #if canImport(FirebaseAuth) && canImport(FirebaseFirestore)
+        Task {
+            do {
+                // Get current user
+                guard let user = Auth.auth().currentUser else { return }
+                let userId = user.uid
+
+                // Delete user data from Firestore
+                let db = Firestore.firestore()
+
+                // Delete user profile
+                try await db.collection("users").document(userId).delete()
+
+                // Delete user's events
+                let eventsSnapshot = try await db.collection("events")
+                    .whereField("ownerId", isEqualTo: userId)
+                    .getDocuments()
+
+                for document in eventsSnapshot.documents {
+                    try await document.reference.delete()
+                }
+
+                // Delete from Firebase Auth
+                try await user.delete()
+
+                // Sign out
+                await MainActor.run {
+                    onSignOut()
+                }
+            } catch {
+                print("Error deleting account: \(error.localizedDescription)")
+            }
+        }
+        #else
+        onSignOut()
+        #endif
     }
 }
 

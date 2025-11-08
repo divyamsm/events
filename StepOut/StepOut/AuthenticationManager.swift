@@ -16,12 +16,14 @@ final class AuthenticationManager: ObservableObject {
     @Published var isAuthenticated: Bool = false
     @Published var currentSession: UserSession?
     @Published var isLoading: Bool = true
+    private weak var appState: AppState?
 
     #if canImport(FirebaseAuth)
     private var authStateHandle: AuthStateDidChangeListenerHandle?
     #endif
 
-    init() {
+    init(appState: AppState? = nil) {
+        self.appState = appState
         print("[Auth] 🔴 AuthenticationManager.init() called")
         setupAuthListener()
     }
@@ -143,14 +145,24 @@ final class AuthenticationManager: ObservableObject {
     }
 
     func signOut() {
+        print("[Auth] 🔓 Signing out user: \(currentSession?.firebaseUID ?? "unknown")")
+        
         #if canImport(FirebaseAuth)
         do {
             try Auth.auth().signOut()
-            print("[Auth] User signed out")
+            print("[Auth] ✅ Firebase sign out successful")
         } catch {
-            print("[Auth] Error signing out: \(error)")
+            print("[Auth] ❌ Error signing out: \(error)")
         }
         #endif
+        
+        // Clear the current session
+        currentSession = nil
+        print("[Auth] ✅ Session cleared")
+        
+        // Clear app state user data
+        appState?.clearUserData()
+        print("[Auth] ✅ AppState user data cleared")
     }
 
     // Convert Firebase UID (string) to UUID for compatibility with existing code

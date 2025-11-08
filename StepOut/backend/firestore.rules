@@ -15,6 +15,18 @@ service cloud.firestore {
       allow create: if isOwner(userId);
       allow update: if isOwner(userId);
       allow delete: if false;
+
+      // Hidden events subcollection
+      match /hiddenEvents/{eventId} {
+        allow read, write: if isOwner(userId);
+        allow delete: if isOwner(userId);
+      }
+
+      // Blocked users subcollection
+      match /blocked/{blockedUserId} {
+        allow read, write: if isOwner(userId);
+        allow delete: if isOwner(userId);
+      }
     }
 
     // Username collection for uniqueness checking
@@ -86,6 +98,20 @@ service cloud.firestore {
 
     match /widgetSnapshots/{userId} {
       allow read, write: if isOwner(userId);
+    }
+
+    // Reports collection for content moderation
+    match /reports/{reportId} {
+      // Users can create reports for content
+      allow create: if isSignedIn()
+        && request.resource.data.reportedBy == request.auth.uid;
+
+      // Users can only read their own reports
+      allow read: if isSignedIn()
+        && resource.data.reportedBy == request.auth.uid;
+
+      // Reports cannot be updated or deleted by users
+      allow update, delete: if false;
     }
 
     match /chats/{chatId} {

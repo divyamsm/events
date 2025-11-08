@@ -16,6 +16,7 @@ struct ContentView: View {
     let appState: AppState
     @StateObject private var authManager: AuthenticationManager
     @State private var viewModel: EventFeedViewModel?
+    @State private var currentSessionUID: String?  // Track which session the viewModel is for
     @State private var alertContext: AlertContext?
     @State private var showingCreateEvent = false
     @State private var editingEvent: EventFeedViewModel.FeedEvent?
@@ -41,7 +42,7 @@ struct ContentView: View {
         if let authManager = authManager {
             _authManager = StateObject(wrappedValue: authManager)
         } else {
-            _authManager = StateObject(wrappedValue: AuthenticationManager())
+            _authManager = StateObject(wrappedValue: AuthenticationManager(appState: appState))
         }
 
         // Don't create view model until authentication completes
@@ -62,28 +63,54 @@ struct ContentView: View {
                         .padding(.top, 8)
                 }
             } else if authManager.isAuthenticated, let session = authManager.currentSession {
-                if viewModel != nil {
-                    mainAppView
-                        .onChange(of: authManager.currentSession) { newSession in
-                            if let newSession = newSession {
-                                viewModel?.updateSession(newSession)
+                Color.clear
+                    .onAppear {
+                        // Create viewModel immediately if it doesn't exist or session changed
+                        if viewModel == nil || currentSessionUID != session.firebaseUID {
+                            print("[ContentView] 🆕 Creating viewModel for session: \(session.firebaseUID ?? "nil")")
+                            print("[ContentView] 🆕   Previous tracked UID: \(currentSessionUID ?? "nil")")
+
+                            // CRITICAL: Clear old viewModel and force it to be released
+                            if viewModel != nil {
+                                print("[ContentView] 🧨 Destroying old viewModel BEFORE creating new one")
+                                viewModel = nil
+                                // Give it a moment to deinit
+                                DispatchQueue.main.async {
+                                    currentSessionUID = session.firebaseUID
+                                    createViewModel(with: session)
+                                }
+                            } else {
+                                currentSessionUID = session.firebaseUID
+                                createViewModel(with: session)
                             }
                         }
-                } else {
-                    Color.clear
-                        .onAppear {
-                            createViewModel(with: session)
+                    }
+                    .background(
+                        Group {
+                            if viewModel != nil {
+                                mainAppView
+                            }
                         }
-                }
+                    )
             } else {
                 EmailAuthView { user in
                     print("[ContentView] User signed in: \(user.uid)")
                 }
             }
         }
+        .id(authManager.currentSession?.firebaseUID ?? "logged_out")
     }
 
     private func createViewModel(with session: UserSession) {
+        print("[ContentView] ✨ Creating NEW EventFeedViewModel for session: \(session.firebaseUID ?? "nil")")
+        print("[ContentView] ✨   User name: \(session.user.name)")
+
+        // Clear old viewModel first to ensure proper cleanup
+        if viewModel != nil {
+            print("[ContentView] 🗑️ Clearing old viewModel before creating new one")
+            viewModel = nil
+        }
+
         let backend: EventBackend
 #if canImport(FirebaseFunctions)
         backend = FirebaseEventBackend()
@@ -119,6 +146,7 @@ struct ContentView: View {
             showEventDetails: $showEventDetails,
             alertContext: $alertContext
         )
+        .id(authManager.currentSession?.firebaseUID)
     }
 }
 
@@ -239,10 +267,20 @@ private struct MainAppContentView: View {
         .sheet(item: $showEventDetails) { feedEvent in
             if let authManager = authManager,
                let currentUserId = authManager.currentSession?.firebaseUID {
+                // Calculate isEventOwner using CURRENT session, not cached data
+                let isOwner = feedEvent.event.ownerId == currentUserId
+                let _ = print("[ContentView] 🔑 Event: \(feedEvent.event.title), ownerId: \(feedEvent.event.ownerId ?? "nil"), currentUserId: \(currentUserId), isOwner: \(isOwner)")
+                
                 EventDetailTabsView(
                     feedEvent: feedEvent,
                     currentUserId: currentUserId,
-                    isEventOwner: feedEvent.isEditable
+                    isEventOwner: isOwner,
+                    onContentModerated: {
+                        print("[ContentView] 🔄 Content moderated, refreshing feed...")
+                        Task {
+                            await viewModel.loadFeed()
+                        }
+                    }
                 )
             }
         }
@@ -501,7 +539,7 @@ private struct MainAppContentView: View {
                 deleteAction: feedEvent.isEditable ? {
                     deleteTarget = feedEvent
                 } : nil,
-                showAllAttendees: feedEvent.badges.count > 2 ? {
+                showAllAttendees: feedEvent.cardBadges.count > 2 ? {
                     showAttendanceSheet = feedEvent
                 } : nil,
                 showDetails: {
@@ -652,7 +690,7 @@ private struct PastEventRow: View {
                     .foregroundStyle(.white.opacity(0.9))
                     .lineLimit(1)
 
-                if feedEvent.badges.isEmpty == false {
+                if feedEvent.cardBadges.isEmpty == false {
                     attendeesSection
                 }
             }
@@ -830,7 +868,7 @@ private struct EventCardView: View {
                 .allowsHitTesting(false)
 
                 VStack(spacing: 0) {
-                    FriendAvatarRow(badges: feedEvent.badges, onShowAll: showAllAttendees)
+                    FriendAvatarRow(badges: feedEvent.cardBadges, onShowAll: showAllAttendees)
                         .padding(.top, 22)
                         .padding(.horizontal, 24)
 
@@ -1209,7 +1247,7 @@ private struct AttendanceListView: View {
     var body: some View {
         NavigationStack {
             List {
-                Section("People going") {
+                Section("Friends going") {
                     ForEach(sortedGoingBadges) { badge in
                         attendeeRow(for: badge, role: badge.role == .me ? "You" : "Going")
                     }
@@ -1261,7 +1299,7 @@ private struct AttendanceListView: View {
     }
 
     private var sortedGoingBadges: [EventFeedViewModel.FeedEvent.FriendBadge] {
-        feedEvent.badges
+        feedEvent.cardBadges
             .filter { $0.role == .going || $0.role == .me }
             .sorted { lhs, rhs in
                 let lhsTime = arrivalTime(for: lhs) ?? Date.distantFuture
@@ -1595,7 +1633,7 @@ private struct VerticalCarouselFallback: View {
                     rsvpAction: { rsvpTapped(feedEvent) },
                     editAction: feedEvent.isEditable ? { editTapped(feedEvent) } : nil,
                     deleteAction: feedEvent.isEditable ? { deleteTapped(feedEvent) } : nil,
-                    showAllAttendees: feedEvent.badges.count > 2 ? { showAllTapped(feedEvent) } : nil,
+                    showAllAttendees: feedEvent.cardBadges.count > 2 ? { showAllTapped(feedEvent) } : nil,
                     showDetails: { showDetailsTapped(feedEvent) }
                 )
                 .frame(width: containerSize.width * 0.82, height: containerSize.height * 0.75)

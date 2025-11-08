@@ -16,7 +16,7 @@ final class EventPhotosViewModel: ObservableObject {
     @Published var hasMoreComments = true
 
     private let backend: FirebasePhotoBackend
-    private let currentUserId: String
+    let currentUserId: String
 
     init(backend: FirebasePhotoBackend = FirebasePhotoBackend(), currentUserId: String) {
         self.backend = backend

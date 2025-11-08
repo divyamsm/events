@@ -26,13 +26,22 @@ struct StepOutApp: App {
 
     var body: some Scene {
         WindowGroup {
-            // FORCE showing ContentView to bypass OnboardingFlowView
-            ContentView(appState: appState)
-                .environmentObject(appState)
-                .onAppear {
-                    print("[StepOutApp] 🟢 ContentView appeared!")
+            Group {
+                if appState.isOnboarded {
+                    ContentView(appState: appState)
+                        .environmentObject(appState)
+                        .onAppear {
+                            print("[StepOutApp] 🟢 ContentView appeared!")
+                        }
+                } else {
+                    OnboardingFlowView()
+                        .environmentObject(appState)
+                        .onAppear {
+                            print("[StepOutApp] 🟢 OnboardingFlowView appeared!")
+                        }
                 }
-                .preferredColorScheme(appState.selectedTheme.colorScheme)
+            }
+            .preferredColorScheme(appState.selectedTheme.colorScheme)
         }
     }
 
