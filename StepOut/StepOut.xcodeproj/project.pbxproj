@@ -15,7 +15,6 @@
 		4ECF9734CE4C8EAEC350EF06 /* ChatBackend.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0DBE6016700C0E973D2C613D /* ChatBackend.swift */; };
 		69317C97439CB323DB3B8F38 /* FirebasePhotoBackend.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0EFD9F6088F826306C0093B2 /* FirebasePhotoBackend.swift */; };
 		72CB5DE55A96BB91142A5693 /* ChatsTabView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DDBFED8E89C646F09DBBEB57 /* ChatsTabView.swift */; };
-		74EA6C17AAA8D740DE910F52 /* PhoneAuthView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A46EEBA34FB8B363AE8248E /* PhoneAuthView.swift */; };
 		7A3007E6192640B78477C884 /* UserProfileViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = D90D6DFB6A80497A8B3A71B1 /* UserProfileViewModel.swift */; };
 		8E2410082E976361008B258E /* FirebaseAI in Frameworks */ = {isa = PBXBuildFile; productRef = 8E2410072E976361008B258E /* FirebaseAI */; };
 		8E24100A2E976361008B258E /* FirebaseAnalytics in Frameworks */ = {isa = PBXBuildFile; productRef = 8E2410092E976361008B258E /* FirebaseAnalytics */; };
@@ -60,6 +59,7 @@
 		AABLOCK1111111111111111 /* BlockedUsersManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = BBBLOCK1111111111111111 /* BlockedUsersManager.swift */; };
 		AABLOCK2222222222222222 /* BlockedUsersView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BBBLOCK2222222222222222 /* BlockedUsersView.swift */; };
 		AATERMS3333333333333333 /* TermsOfService.swift in Sources */ = {isa = PBXBuildFile; fileRef = BBTERMS3333333333333333 /* TermsOfService.swift */; };
+		A1B2C3D4E5F6A7B8C9D0E1F2 /* ModernOnboardingFlow.swift in Sources */ = {isa = PBXBuildFile; fileRef = F2E1D0C9B8A7F6E5D4C3B2A1 /* ModernOnboardingFlow.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -92,7 +92,6 @@
 		1566B7713E194908AA9D0763 /* EventPreferencesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EventPreferencesView.swift; sourceTree = "<group>"; };
 		194C4C9625C5470CA0789657 /* EmailAuthView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmailAuthView.swift; sourceTree = "<group>"; };
 		28AFC53405874F57865E693B /* ContactsManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContactsManager.swift; sourceTree = "<group>"; };
-		2A46EEBA34FB8B363AE8248E /* PhoneAuthView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PhoneAuthView.swift; sourceTree = "<group>"; };
 		4F165A9FA4828BE664BAD387 /* EventPhotoData.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = EventPhotoData.swift; sourceTree = "<group>"; };
 		4FC0B9620571472443BAA672 /* ChatView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ChatView.swift; sourceTree = "<group>"; };
 		69A8196BDCFF485D2CD9609B /* UnifiedFriendsView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = UnifiedFriendsView.swift; sourceTree = "<group>"; };
@@ -133,6 +132,7 @@
 		BBBLOCK1111111111111111 /* BlockedUsersManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BlockedUsersManager.swift; sourceTree = "<group>"; };
 		BBBLOCK2222222222222222 /* BlockedUsersView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BlockedUsersView.swift; sourceTree = "<group>"; };
 		BBTERMS3333333333333333 /* TermsOfService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TermsOfService.swift; sourceTree = "<group>"; };
+		F2E1D0C9B8A7F6E5D4C3B2A1 /* ModernOnboardingFlow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModernOnboardingFlow.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -206,8 +206,7 @@
 				FF1A4CE229A1A2D000000103 /* Info.plist */,
 				FF1A4CE229A1A2D000000105 /* Preview Content */,
 				F4C22DDD7B86ACDFE4BC909B /* AuthenticationManager.swift */,
-				2A46EEBA34FB8B363AE8248E /* PhoneAuthView.swift */,
-				194C4C9625C5470CA0789657 /* EmailAuthView.swift */,
+			194C4C9625C5470CA0789657 /* EmailAuthView.swift */,
 				E6DE419A062B4BFA886CB176 /* InviteFriendsView.swift */,
 				28AFC53405874F57865E693B /* ContactsManager.swift */,
 				1566B7713E194908AA9D0763 /* EventPreferencesView.swift */,
@@ -223,6 +222,7 @@
 				BBBLOCK1111111111111111 /* BlockedUsersManager.swift */,
 				BBBLOCK2222222222222222 /* BlockedUsersView.swift */,
 				BBTERMS3333333333333333 /* TermsOfService.swift */,
+				F2E1D0C9B8A7F6E5D4C3B2A1 /* ModernOnboardingFlow.swift */,
 			);
 			path = StepOut;
 			sourceTree = "<group>";
@@ -380,8 +380,7 @@
 				FF1A4CE429A1A2D000000225 /* OnboardingFlowView.swift in Sources */,
 				FF1A4CE429A1A2D000000226 /* AppState.swift in Sources */,
 				27015A029197B3ED08725B9B /* AuthenticationManager.swift in Sources */,
-				74EA6C17AAA8D740DE910F52 /* PhoneAuthView.swift in Sources */,
-				D9912387CE534522B544D988 /* EmailAuthView.swift in Sources */,
+			D9912387CE534522B544D988 /* EmailAuthView.swift in Sources */,
 				EB1F9DF7676043E9BE92D9EC /* InviteFriendsView.swift in Sources */,
 				91163F5183D1471C8ACD60CD /* ContactsManager.swift in Sources */,
 				C3A6E687E9CB465FB1B052E3 /* EventPreferencesView.swift in Sources */,
@@ -400,6 +399,7 @@
 				AABLOCK1111111111111111 /* BlockedUsersManager.swift in Sources */,
 				AABLOCK2222222222222222 /* BlockedUsersView.swift in Sources */,
 				AATERMS3333333333333333 /* TermsOfService.swift in Sources */,
+				A1B2C3D4E5F6A7B8C9D0E1F2 /* ModernOnboardingFlow.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

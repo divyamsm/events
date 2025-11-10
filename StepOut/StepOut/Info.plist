@@ -35,9 +35,7 @@
 	<key>CFBundleVersion</key>
 	<string>2</string>
 	<key>FirebaseAppDelegateProxyEnabled</key>
-	<false/>
-	<key>FirebaseAppCheckDebugToken</key>
-	<string>test</string>
+	<true/>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

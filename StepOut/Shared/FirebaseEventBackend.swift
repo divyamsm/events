@@ -85,7 +85,7 @@ final class FirebaseEventBackend: EventBackend {
         return eventId
     }
 
-    func rsvp(eventID: UUID, backendIdentifier: String?, userId: UUID, status: String, arrival: Date?) async throws {
+    func rsvp(eventID: UUID, backendIdentifier: String?, status: String, arrival: Date?) async throws {
         let callable = functions.httpsCallable("rsvpEvent")
         let canonicalID = (backendIdentifier ?? eventIdentifierMap[eventID] ?? eventID.uuidString).uppercased()
         var payload: [String: Any] = [
@@ -308,6 +308,6 @@ final class FirebaseEventBackend: EventBackend {
         throw NSError(domain: "FirebaseEventBackend", code: -1, userInfo: nil)
     }
 
-    func rsvp(eventID: UUID, userId: UUID, status: String, arrival: Date?) async throws {}
+    func rsvp(eventID: UUID, backendIdentifier: String?, status: String, arrival: Date?) async throws {}
 #endif
 }

@@ -1,4 +1,5 @@
 import Foundation
+import UserNotifications
 #if canImport(FirebaseCore)
 import FirebaseCore
 #endif
@@ -17,12 +18,16 @@ final class PhoneAuthViewModel: ObservableObject {
     private var verificationID: String?
 
     func sendCode(for rawInput: String) async -> Bool {
+        print("[PhoneAuth] 🔵 sendCode called with input: \(rawInput)")
 #if DEBUG
+        print("[PhoneAuth] 🔵 DEBUG build detected")
         guard let phone = normalize(rawInput) else {
+            print("[PhoneAuth] ❌ Phone normalization failed")
             errorMessage = "Enter a valid 10-digit US phone number."
             return false
         }
 
+        print("[PhoneAuth] ✅ DEBUG: Using simulator shortcut")
         formattedDisplayNumber = phone.display
         verificationID = simulatorVerificationID
         codeHint = "Debug build shortcut: enter \(simulatorOTP) on the next screen."
@@ -30,40 +35,51 @@ final class PhoneAuthViewModel: ObservableObject {
         return true
 #else
 #if canImport(FirebaseAuth)
+        print("[PhoneAuth] 🔵 RELEASE build - checking Firebase")
         guard FirebaseApp.app() != nil else {
+            print("[PhoneAuth] ❌ Firebase not configured")
             errorMessage = "Firebase isn't configured. Double check your GoogleService-Info.plist."
             return false
         }
 
         guard let phone = normalize(rawInput) else {
+            print("[PhoneAuth] ❌ Phone normalization failed")
             errorMessage = "Enter a valid 10-digit US phone number."
             return false
         }
 
+        print("[PhoneAuth] ✅ Normalized phone: \(phone.e164)")
+
         if isSimulator {
+            print("[PhoneAuth] 🔵 Running on simulator - using shortcut")
             formattedDisplayNumber = phone.display
             verificationID = simulatorVerificationID
             codeHint = "Simulator shortcut: enter \(simulatorOTP) on the next screen."
             errorMessage = nil
             return true
         } else {
+            print("[PhoneAuth] 🔵 Running on PHYSICAL DEVICE - sending real SMS")
             errorMessage = nil
             isSendingCode = true
             defer { isSendingCode = false }
 
             do {
                 formattedDisplayNumber = phone.display
+                print("[PhoneAuth] 🔵 Requesting verification ID for: \(phone.e164)")
 
                 let verificationID = try await requestVerificationID(e164: phone.e164)
                 self.verificationID = verificationID
+                print("[PhoneAuth] ✅ Got verification ID: \(verificationID)")
                 codeHint = nil
                 return true
             } catch {
+                print("[PhoneAuth] ❌ Error sending code: \(error)")
                 errorMessage = error.presentableMessage
                 return false
             }
         }
 #else
+        print("[PhoneAuth] ❌ FirebaseAuth not available")
         errorMessage = "FirebaseAuth is not available in this build."
         return false
 #endif
@@ -158,13 +174,30 @@ final class PhoneAuthViewModel: ObservableObject {
 
 #if canImport(FirebaseAuth)
     private func requestVerificationID(e164: String) async throws -> String {
-        try await withCheckedThrowingContinuation { continuation in
+        // FOR MVP: FORCE SMS-ONLY MODE - Disable Silent Push completely
+        print("[PhoneAuth] 🟡 MVP MODE: Forcing SMS-only (no Silent Push)")
+
+        // Set invalid APNs token to force Firebase to use SMS
+        let invalidToken = Data(repeating: 0xFF, count: 32)
+        #if DEBUG
+        Auth.auth().setAPNSToken(invalidToken, type: .sandbox)
+        print("[PhoneAuth] 🔵 Set invalid APNs token (sandbox) - forcing SMS mode")
+        #else
+        Auth.auth().setAPNSToken(invalidToken, type: .prod)
+        print("[PhoneAuth] 🔵 Set invalid APNs token (prod) - forcing SMS mode")
+        #endif
+
+        return try await withCheckedThrowingContinuation { continuation in
             PhoneAuthProvider.provider().verifyPhoneNumber(e164, uiDelegate: nil) { id, error in
                 if let error {
+                    print("[PhoneAuth] ❌ Firebase Auth error: \(error.localizedDescription)")
                     continuation.resume(throwing: error)
                 } else if let id {
+                    print("[PhoneAuth] ✅ Firebase Auth verification ID received")
+                    print("[PhoneAuth] 📱 SMS should be sent to user's phone")
                     continuation.resume(returning: id)
                 } else {
+                    print("[PhoneAuth] ❌ Firebase Auth returned no ID and no error")
                     continuation.resume(throwing: PhoneAuthError.unknown)
                 }
             }

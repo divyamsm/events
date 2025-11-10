@@ -289,16 +289,16 @@ final class EventFeedViewModel: ObservableObject {
             Task { @MainActor in
                 do {
                     let backendIdentifier = feedEvent.event.backendIdentifier
+                    let firebaseUID = session.firebaseUID ?? "unknown"
                     print("[Feed] rsvp payload=", [
                         "eventId", backendIdentifier ?? eventID.uuidString,
-                        "userId", session.user.id,
+                        "firebaseUID", firebaseUID,
                         "status", going ? "going" : "declined",
                         "arrival", arrivalTime as Any
                     ])
                     try await remoteBackend.rsvp(
                         eventID: eventID,
                         backendIdentifier: backendIdentifier,
-                        userId: session.user.id,
                         status: going ? "going" : "declined",
                         arrival: arrivalTime
                     )

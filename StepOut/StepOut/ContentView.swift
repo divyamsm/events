@@ -51,54 +51,68 @@ struct ContentView: View {
         }
     }
 
+    @ViewBuilder
     var body: some View {
-        Group {
-            if authManager.isLoading {
-                VStack {
-                    ProgressView()
-                        .progressViewStyle(.circular)
-                    Text("Loading...")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                        .padding(.top, 8)
-                }
-            } else if authManager.isAuthenticated, let session = authManager.currentSession {
-                Color.clear
-                    .onAppear {
-                        // Create viewModel immediately if it doesn't exist or session changed
-                        if viewModel == nil || currentSessionUID != session.firebaseUID {
-                            print("[ContentView] 🆕 Creating viewModel for session: \(session.firebaseUID ?? "nil")")
-                            print("[ContentView] 🆕   Previous tracked UID: \(currentSessionUID ?? "nil")")
+        if authManager.isLoading {
+            loadingView
+                .id(authManager.currentSession?.firebaseUID ?? "logged_out")
+        } else if authManager.isAuthenticated, let session = authManager.currentSession {
+            authenticatedView(session: session)
+                .id(authManager.currentSession?.firebaseUID ?? "logged_out")
+        } else {
+            EmailAuthView { user in
+                // Auth state listener in AuthenticationManager will handle sign-in automatically
+                print("[ContentView] User signed in: \(user.uid)")
+            }
+            .id(authManager.currentSession?.firebaseUID ?? "logged_out")
+        }
+    }
 
-                            // CRITICAL: Clear old viewModel and force it to be released
-                            if viewModel != nil {
-                                print("[ContentView] 🧨 Destroying old viewModel BEFORE creating new one")
-                                viewModel = nil
-                                // Give it a moment to deinit
-                                DispatchQueue.main.async {
-                                    currentSessionUID = session.firebaseUID
-                                    createViewModel(with: session)
-                                }
-                            } else {
-                                currentSessionUID = session.firebaseUID
-                                createViewModel(with: session)
-                            }
-                        }
+    private var loadingView: some View {
+        VStack {
+            ProgressView()
+                .progressViewStyle(.circular)
+            Text("Loading...")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .padding(.top, 8)
+        }
+    }
+
+    private func authenticatedView(session: UserSession) -> some View {
+        Color.clear
+            .onAppear {
+                handleSessionChange(session: session)
+            }
+            .background(
+                Group {
+                    if viewModel != nil {
+                        mainAppView
                     }
-                    .background(
-                        Group {
-                            if viewModel != nil {
-                                mainAppView
-                            }
-                        }
-                    )
-            } else {
-                EmailAuthView { user in
-                    print("[ContentView] User signed in: \(user.uid)")
                 }
+            )
+    }
+
+    private func handleSessionChange(session: UserSession) {
+        // Create viewModel immediately if it doesn't exist or session changed
+        if viewModel == nil || currentSessionUID != session.firebaseUID {
+            print("[ContentView] 🆕 Creating viewModel for session: \(session.firebaseUID ?? "nil")")
+            print("[ContentView] 🆕   Previous tracked UID: \(currentSessionUID ?? "nil")")
+
+            // CRITICAL: Clear old viewModel and force it to be released
+            if viewModel != nil {
+                print("[ContentView] 🧨 Destroying old viewModel BEFORE creating new one")
+                viewModel = nil
+                // Give it a moment to deinit
+                DispatchQueue.main.async {
+                    currentSessionUID = session.firebaseUID
+                    createViewModel(with: session)
+                }
+            } else {
+                currentSessionUID = session.firebaseUID
+                createViewModel(with: session)
             }
         }
-        .id(authManager.currentSession?.firebaseUID ?? "logged_out")
     }
 
     private func createViewModel(with session: UserSession) {
@@ -1027,12 +1041,13 @@ private struct EventCardView: View {
                         .font(.caption)
                         .foregroundStyle(.white.opacity(0.6))
                 }
-                let friendsCount = max(feedEvent.attendingCount - 1, 0)
-                Text(friendsCount > 0 ? "You + \(friendsCount) friend\(friendsCount == 1 ? "" : "s") are going" : "You're going")
+                let othersCount = max(feedEvent.attendingCount - 1, 0)
+                Text(othersCount > 0 ? "You + \(othersCount) stepping out" : "You're stepping out")
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.white.opacity(0.9))
             } else if feedEvent.attendingCount > 0 {
-                Text("\(feedEvent.attendingCount) friend\(feedEvent.attendingCount == 1 ? "" : "s") going")
+                let count = feedEvent.attendingCount
+                Text("\(count) \(count == 1 ? "person" : "people") stepping out")
                     .font(.caption)
                     .foregroundStyle(.white.opacity(0.8))
             }

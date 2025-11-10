@@ -88,11 +88,21 @@ final class AuthenticationManager: ObservableObject {
             let photoURLString = doc.data()?["photoURL"] as? String
             let photoURL = photoURLString.flatMap { URL(string: $0) }
 
-            // Read UUID from Firestore, or generate fallback if missing
+            // Read UUID from Firestore, or generate if missing
             let uuidString = doc.data()?["id"] as? String
-            let uuid = uuidString.flatMap { UUID(uuidString: $0) } ?? uuidFromFirebaseUID(user.uid)
+            let uuid: UUID
+            if let uuidString = uuidString, let existingUUID = UUID(uuidString: uuidString) {
+                uuid = existingUUID
+                print("[Auth] 🔍 User UUID from Firestore: \(uuidString)")
+            } else {
+                // UUID missing - generate and store it
+                uuid = uuidFromFirebaseUID(user.uid)
+                print("[Auth] ⚠️ UUID missing in Firestore, generated: \(uuid)")
 
-            print("[Auth] 🔍 User UUID from Firestore: \(uuidString ?? "nil"), using: \(uuid)")
+                // Update Firestore with the UUID
+                try? await userRef.setData(["id": uuid.uuidString], merge: true)
+                print("[Auth] ✅ Saved UUID to Firestore")
+            }
 
             let friend = Friend(
                 id: uuid,
@@ -146,7 +156,7 @@ final class AuthenticationManager: ObservableObject {
 
     func signOut() {
         print("[Auth] 🔓 Signing out user: \(currentSession?.firebaseUID ?? "unknown")")
-        
+
         #if canImport(FirebaseAuth)
         do {
             try Auth.auth().signOut()
@@ -155,14 +165,16 @@ final class AuthenticationManager: ObservableObject {
             print("[Auth] ❌ Error signing out: \(error)")
         }
         #endif
-        
+
         // Clear the current session
         currentSession = nil
         print("[Auth] ✅ Session cleared")
-        
-        // Clear app state user data
+
+        // Clear app state user data and reset onboarding
         appState?.clearUserData()
-        print("[Auth] ✅ AppState user data cleared")
+        appState?.isOnboarded = false
+        UserDefaults.standard.set(false, forKey: "hasCompletedOnboarding")
+        print("[Auth] ✅ AppState user data cleared and onboarding reset")
     }
 
     // Convert Firebase UID (string) to UUID for compatibility with existing code

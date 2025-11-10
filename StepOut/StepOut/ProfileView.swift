@@ -211,9 +211,9 @@ struct RemoteProfileResponse {
 // MARK: - Backend abstraction
 
 protocol ProfileBackend {
-    func fetchProfile(userId: UUID) async throws -> RemoteProfileResponse
-    func updateProfile(userId: UUID, displayName: String, username: String?, bio: String?, phoneNumber: String?, primaryLocation: CLLocationCoordinate2D?) async throws -> RemoteProfileResponse
-    func fetchAttendedEvents(userId: UUID, limit: Int) async throws -> [RemoteProfileResponse.RemoteAttendedEvent]
+    func fetchProfile(firebaseUID: String) async throws -> RemoteProfileResponse
+    func updateProfile(firebaseUID: String, displayName: String, username: String?, bio: String?, phoneNumber: String?, primaryLocation: CLLocationCoordinate2D?) async throws -> RemoteProfileResponse
+    func fetchAttendedEvents(firebaseUID: String, limit: Int) async throws -> [RemoteProfileResponse.RemoteAttendedEvent]
 }
 
 #if canImport(FirebaseFunctions)
@@ -224,18 +224,18 @@ final class FirebaseProfileBackend: ProfileBackend {
         self.functions = functions
     }
 
-    func fetchProfile(userId: UUID) async throws -> RemoteProfileResponse {
+    func fetchProfile(firebaseUID: String) async throws -> RemoteProfileResponse {
         let callable = functions.httpsCallable("getProfile")
-        let result = try await callable.call(["userId": userId.uuidString])
+        let result = try await callable.call(["userId": firebaseUID])
         guard let data = result.data as? [String: Any], let response = RemoteProfileResponse(dictionary: data) else {
             throw NSError(domain: "FirebaseProfileBackend", code: -1, userInfo: [NSLocalizedDescriptionKey: "Malformed getProfile response"])
         }
         return response
     }
 
-    func updateProfile(userId: UUID, displayName: String, username: String?, bio: String?, phoneNumber: String?, primaryLocation: CLLocationCoordinate2D?) async throws -> RemoteProfileResponse {
+    func updateProfile(firebaseUID: String, displayName: String, username: String?, bio: String?, phoneNumber: String?, primaryLocation: CLLocationCoordinate2D?) async throws -> RemoteProfileResponse {
         let callable = functions.httpsCallable("updateProfile")
-        var payload: [String: Any] = ["userId": userId.uuidString, "displayName": displayName]
+        var payload: [String: Any] = ["userId": firebaseUID, "displayName": displayName]
         if let username { payload["username"] = username }
         if let bio { payload["bio"] = bio }
         if let phoneNumber { payload["phoneNumber"] = phoneNumber }
@@ -251,9 +251,9 @@ final class FirebaseProfileBackend: ProfileBackend {
         return response
     }
 
-    func fetchAttendedEvents(userId: UUID, limit: Int) async throws -> [RemoteProfileResponse.RemoteAttendedEvent] {
+    func fetchAttendedEvents(firebaseUID: String, limit: Int) async throws -> [RemoteProfileResponse.RemoteAttendedEvent] {
         let callable = functions.httpsCallable("listAttendedEvents")
-        let result = try await callable.call(["userId": userId.uuidString, "limit": limit])
+        let result = try await callable.call(["userId": firebaseUID, "limit": limit])
         guard let data = result.data as? [String: Any], let events = data["events"] as? [[String: Any]] else {
             throw NSError(domain: "FirebaseProfileBackend", code: -1, userInfo: [NSLocalizedDescriptionKey: "Malformed listAttendedEvents response"])
         }
@@ -272,7 +272,7 @@ final class FirebaseProfileBackend: ProfileBackend {
 #endif
 
 struct MockProfileBackend: ProfileBackend {
-    func fetchProfile(userId: UUID) async throws -> RemoteProfileResponse {
+    func fetchProfile(firebaseUID: String) async throws -> RemoteProfileResponse {
         let profile = ProfileRepository.sampleProfile
         let data: [String: Any] = [
             "profile": [
@@ -324,12 +324,12 @@ struct MockProfileBackend: ProfileBackend {
         return response
     }
 
-    func updateProfile(userId: UUID, displayName: String, username: String?, bio: String?, phoneNumber: String?, primaryLocation: CLLocationCoordinate2D?) async throws -> RemoteProfileResponse {
-        try await fetchProfile(userId: userId)
+    func updateProfile(firebaseUID: String, displayName: String, username: String?, bio: String?, phoneNumber: String?, primaryLocation: CLLocationCoordinate2D?) async throws -> RemoteProfileResponse {
+        try await fetchProfile(firebaseUID: firebaseUID)
     }
 
-    func fetchAttendedEvents(userId: UUID, limit: Int) async throws -> [RemoteProfileResponse.RemoteAttendedEvent] {
-        let response = try await fetchProfile(userId: userId)
+    func fetchAttendedEvents(firebaseUID: String, limit: Int) async throws -> [RemoteProfileResponse.RemoteAttendedEvent] {
+        let response = try await fetchProfile(firebaseUID: firebaseUID)
         return Array(response.attendedEvents.prefix(limit))
     }
 }
@@ -343,16 +343,16 @@ final class ProfileViewModel: ObservableObject {
     @Published var errorMessage: String?
 
     private let backend: ProfileBackend
-    private let userId: UUID
+    private let firebaseUID: String
 
-    init(userId: UUID, backend: ProfileBackend? = nil) {
-        self.userId = userId
+    init(firebaseUID: String, backend: ProfileBackend? = nil) {
+        self.firebaseUID = firebaseUID
 #if canImport(FirebaseFunctions)
         self.backend = backend ?? FirebaseProfileBackend()
-        print("🟢 [ProfileViewModel] init - Using FirebaseProfileBackend for userId: \(userId)")
+        print("🟢 [ProfileViewModel] init - Using FirebaseProfileBackend for firebaseUID: \(firebaseUID)")
 #else
         self.backend = backend ?? MockProfileBackend()
-        print("🟡 [ProfileViewModel] init - Using MockProfileBackend for userId: \(userId)")
+        print("🟡 [ProfileViewModel] init - Using MockProfileBackend for firebaseUID: \(firebaseUID)")
 #endif
 
 #if DEBUG
@@ -365,7 +365,7 @@ final class ProfileViewModel: ObservableObject {
 
     func loadProfile() async {
         #if DEBUG
-        print("[Profile] 🔵 loadProfile called for userId: \(userId)")
+        print("[Profile] 🔵 loadProfile called for firebaseUID: \(firebaseUID)")
         #endif
 
         // Only show loading if we don't have a profile yet
@@ -384,7 +384,7 @@ final class ProfileViewModel: ObservableObject {
             print("[Profile] 🔵 Fetching profile from backend...")
             #endif
 
-            let response = try await backend.fetchProfile(userId: userId)
+            let response = try await backend.fetchProfile(firebaseUID: firebaseUID)
 
             #if DEBUG
             print("[Profile] 🔵 Backend returned profile with \(response.attendedEvents.count) events")
@@ -418,7 +418,7 @@ final class ProfileViewModel: ObservableObject {
     func refreshAttendedEvents(limit: Int = 25) async {
         guard profile != nil else { return }
         do {
-            let events = try await backend.fetchAttendedEvents(userId: userId, limit: limit)
+            let events = try await backend.fetchAttendedEvents(firebaseUID: firebaseUID, limit: limit)
             profile?.attendedEvents = events.map { convertAttendedEvent($0) }
             errorMessage = nil
             logDebug("refreshAttendedEvents succeeded", extra: ["count": events.count])
@@ -439,7 +439,7 @@ final class ProfileViewModel: ObservableObject {
             }
             print("[Profile] 🔵 Calling backend.updateProfile with phoneNumber: '\(phoneNumber ?? "nil")'")
             let response = try await backend.updateProfile(
-                userId: userId,
+                firebaseUID: firebaseUID,
                 displayName: trimmed,
                 username: sanitizedUsername,
                 bio: bio,
@@ -570,15 +570,15 @@ struct ProfileView: View {
     @State private var pendingRequestsCount = 0
     @State private var showPhoneNumberPrompt = false
     @State private var focusMonth = Date()
+    @State private var isEmailVerified = Auth.auth().currentUser?.isEmailVerified ?? true
 
     init(authManager: AuthenticationManager? = nil) {
         self.authManager = authManager
 
-        // Get userId from authManager if authenticated, otherwise use a placeholder
-        // Note: The backend now uses the authenticated user's UID directly,
-        // so this userId is only used for compatibility with the UUID-based ProfileViewModel
-        let userId = authManager?.currentSession?.user.id ?? UUID()
-        _viewModel = StateObject(wrappedValue: ProfileViewModel(userId: userId))
+        // Get firebaseUID from authManager if authenticated, otherwise use a placeholder
+        // The backend requires the Firebase UID to query user data correctly
+        let firebaseUID = authManager?.currentSession?.firebaseUID ?? "unknown"
+        _viewModel = StateObject(wrappedValue: ProfileViewModel(firebaseUID: firebaseUID))
     }
 
     var body: some View {
@@ -616,6 +616,19 @@ struct ProfileView: View {
                     .addSnapshotListener { snapshot, _ in
                         pendingRequestsCount = snapshot?.documents.count ?? 0
                     }
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("EmailVerified"))) { _ in
+            // Reload user data and update verification status
+            Task {
+                do {
+                    try await Auth.auth().currentUser?.reload()
+                    await MainActor.run {
+                        isEmailVerified = Auth.auth().currentUser?.isEmailVerified ?? false
+                    }
+                } catch {
+                    print("[ProfileView] Failed to reload user: \(error)")
+                }
             }
         }
         .sheet(isPresented: $showFriends) {
@@ -731,11 +744,11 @@ struct ProfileView: View {
                 .transaction { transaction in
                     transaction.animation = nil
                 }
-                .blur(radius: Auth.auth().currentUser?.isEmailVerified == false ? 10 : 0)
-                .allowsHitTesting(Auth.auth().currentUser?.isEmailVerified != false)
+                .blur(radius: !isEmailVerified ? 10 : 0)
+                .allowsHitTesting(isEmailVerified)
 
                 // Email verification overlay
-                if let user = Auth.auth().currentUser, !user.isEmailVerified {
+                if !isEmailVerified {
                     EmailVerificationOverlay()
                 }
             }

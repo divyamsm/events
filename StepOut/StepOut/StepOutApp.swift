@@ -15,11 +15,9 @@ struct StepOutApp: App {
 
     init() {
         print("[StepOutApp] 🔴 init() START")
-        Self.configureFirebaseIfNeeded()
-        print("[StepOutApp] 🔴 After configureFirebaseIfNeeded")
-        // SKIP setting APNs token - it's causing crashes
-        // Self.setInitialAPNsToken()
-        print("[StepOutApp] 🔴 Skipping APNs token for now")
+        // NOTE: Firebase is now configured in AppDelegate.didFinishLaunchingWithOptions
+        // This is CRITICAL for method swizzling to work correctly
+        print("[StepOutApp] 🔴 Skipping Firebase config here - it's done in AppDelegate")
         _appState = StateObject(wrappedValue: Self.makeInitialAppState())
         print("[StepOutApp] 🔴 init() END")
     }
