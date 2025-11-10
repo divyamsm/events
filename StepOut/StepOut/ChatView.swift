@@ -37,7 +37,7 @@ struct ChatView: View {
                 ScrollViewReader { proxy in
                     ScrollView {
                         LazyVStack(spacing: 16) {
-                            ForEach(viewModel.messages) { message in
+                            ForEach(viewModel.messages.filter { $0.type == .text }) { message in
                                 MessageBubble(
                                     message: message,
                                     isFromCurrentUser: message.senderId == Auth.auth().currentUser?.uid
@@ -51,14 +51,14 @@ struct ChatView: View {
                         .padding(.bottom, 12)
                     }
                     .onChange(of: viewModel.messages.count) { _ in
-                        if let lastMessage = viewModel.messages.last {
+                        if let lastMessage = viewModel.messages.filter({ $0.type == .text }).last {
                             withAnimation(.spring(response: 0.3)) {
                                 proxy.scrollTo(lastMessage.id, anchor: .bottom)
                             }
                         }
                     }
                     .onAppear {
-                        if let lastMessage = viewModel.messages.last {
+                        if let lastMessage = viewModel.messages.filter({ $0.type == .text }).last {
                             proxy.scrollTo(lastMessage.id, anchor: .bottom)
                         }
                     }
@@ -349,11 +349,22 @@ struct MessageBubble: View {
                         .font(.system(size: 11))
                         .foregroundStyle(.tertiary)
 
-                    // Read receipt indicator for current user messages
+                    // Status indicator for current user messages
                     if isFromCurrentUser {
-                        Image(systemName: "checkmark")
-                            .font(.system(size: 9, weight: .semibold))
-                            .foregroundStyle(.blue.opacity(0.6))
+                        switch message.sendState {
+                        case .sending:
+                            ProgressView()
+                                .scaleEffect(0.6)
+                                .frame(width: 12, height: 12)
+                        case .sent:
+                            Image(systemName: "checkmark")
+                                .font(.system(size: 9, weight: .semibold))
+                                .foregroundStyle(.blue.opacity(0.6))
+                        case .failed:
+                            Image(systemName: "exclamationmark.circle.fill")
+                                .font(.system(size: 11))
+                                .foregroundStyle(.red.opacity(0.7))
+                        }
                     }
                 }
                 .padding(.horizontal, 4)
@@ -426,12 +437,35 @@ final class ChatViewModel: ObservableObject {
     }
 
     func sendMessage(text: String) async {
-        do {
-            let _ = try await backend.sendMessage(chatId: chatId, text: text)
-            // Message will appear via real-time listener
-        } catch {
-            errorMessage = error.localizedDescription
-            print("[ChatViewModel] Error sending message: \(error)")
+        guard let currentUser = Auth.auth().currentUser else {
+            errorMessage = "Not authenticated"
+            return
+        }
+
+        // Create optimistic message and add it immediately
+        let optimisticMessage = ChatMessage.optimistic(
+            senderId: currentUser.uid,
+            senderName: currentUser.displayName ?? "You",
+            senderPhotoURL: currentUser.photoURL?.absoluteString,
+            text: text
+        )
+
+        // Add to UI immediately for instant feedback
+        messages.append(optimisticMessage)
+        print("[ChatViewModel] 🚀 Added optimistic message: \(optimisticMessage.id)")
+
+        // Send to backend asynchronously (don't wait)
+        Task {
+            do {
+                let messageId = try await backend.sendMessage(chatId: chatId, text: text)
+                print("[ChatViewModel] ✅ Message sent to backend: \(messageId)")
+                // The real-time listener will replace the optimistic message
+            } catch {
+                // Mark the optimistic message as failed
+                optimisticMessage.sendState = .failed
+                print("[ChatViewModel] ❌ Message failed: \(error)")
+                errorMessage = error.localizedDescription
+            }
         }
     }
 
@@ -439,7 +473,34 @@ final class ChatViewModel: ObservableObject {
         guard messageListener == nil else { return }
 
         messageListener = backend.listenToMessages(chatId: chatId) { [weak self] newMessages in
-            self?.messages = newMessages
+            guard let self = self else { return }
+
+            // Merge new messages with optimistic messages
+            var merged: [ChatMessage] = []
+
+            // Remove optimistic messages that have been confirmed by backend
+            let optimisticMessages = self.messages.filter { $0.sendState == .sending || $0.sendState == .failed }
+
+            // Add all confirmed messages from backend
+            merged.append(contentsOf: newMessages)
+
+            // Add back any optimistic messages that haven't been confirmed yet
+            for optimistic in optimisticMessages {
+                // Check if this message is now in the backend messages (by matching text and approximate time)
+                let isConfirmed = newMessages.contains { confirmed in
+                    confirmed.text == optimistic.text &&
+                    confirmed.senderId == optimistic.senderId &&
+                    abs(confirmed.createdAt.timeIntervalSince(optimistic.createdAt)) < 5
+                }
+
+                if !isConfirmed {
+                    // Keep the optimistic message if it hasn't been confirmed yet
+                    merged.append(optimistic)
+                }
+            }
+
+            // Sort by creation time
+            self.messages = merged.sorted { $0.createdAt < $1.createdAt }
         }
     }
 

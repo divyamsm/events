@@ -344,6 +344,9 @@ final class ProfileViewModel: ObservableObject {
 
     private let backend: ProfileBackend
     private let firebaseUID: String
+    private static var cachedProfile: UserProfile?
+    private static var cachedProfileUID: String?
+    private static var lastFetchTime: Date?
 
     init(firebaseUID: String, backend: ProfileBackend? = nil) {
         self.firebaseUID = firebaseUID
@@ -354,6 +357,12 @@ final class ProfileViewModel: ObservableObject {
         self.backend = backend ?? MockProfileBackend()
         print("🟡 [ProfileViewModel] init - Using MockProfileBackend for firebaseUID: \(firebaseUID)")
 #endif
+
+        // Load from cache if available for this user
+        if Self.cachedProfileUID == firebaseUID, let cached = Self.cachedProfile {
+            profile = cached
+            print("[ProfileViewModel] 📦 Loaded profile from cache")
+        }
 
 #if DEBUG
         if ProcessInfo.processInfo.environment["XCODE_RUNNING_FOR_PREVIEWS"] == "1" {
@@ -368,8 +377,8 @@ final class ProfileViewModel: ObservableObject {
         print("[Profile] 🔵 loadProfile called for firebaseUID: \(firebaseUID)")
         #endif
 
-        // Only show loading if we don't have a profile yet
-        let shouldShowLoading = profile == nil
+        // Only show loading if we don't have cached data
+        let shouldShowLoading = Self.cachedProfile == nil
         if shouldShowLoading {
             isLoading = true
         }
@@ -390,7 +399,14 @@ final class ProfileViewModel: ObservableObject {
             print("[Profile] 🔵 Backend returned profile with \(response.attendedEvents.count) events")
             #endif
 
-            profile = mapResponse(response)
+            let loadedProfile = mapResponse(response)
+
+            // Update both the published property and cache
+            profile = loadedProfile
+            Self.cachedProfile = loadedProfile
+            Self.cachedProfileUID = firebaseUID
+            Self.lastFetchTime = Date()
+
             errorMessage = nil
             logDebug("loadProfile succeeded", extra: [
                 "friends": profile?.friends.count ?? 0,
@@ -408,10 +424,16 @@ final class ProfileViewModel: ObservableObject {
         } catch {
             logFailure(context: "loadProfile", error: error)
             errorMessage = readableMessage(for: error)
+
+            // Keep showing cached data if backend fails
+            if Self.cachedProfileUID == firebaseUID, let cached = Self.cachedProfile {
+                print("[ProfileViewModel] 🔄 Using cached data due to error")
+            } else {
 #if DEBUG
-            print("[Profile] ❌ Failed to load profile, using sample profile")
-            profile = ProfileRepository.sampleProfile
+                print("[Profile] ❌ Failed to load profile, using sample profile")
+                profile = ProfileRepository.sampleProfile
 #endif
+            }
         }
     }
 

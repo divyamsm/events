@@ -416,16 +416,41 @@ final class ChatsViewModel: ObservableObject {
     @Published var errorMessage: String?
 
     private let backend = ChatBackend()
+    static var cachedChats: [ChatInfo] = []
+    private static var lastFetchTime: Date?
+
+    init() {
+        // Load cached chats immediately for instant display
+        if !Self.cachedChats.isEmpty {
+            chats = Self.cachedChats
+            print("[ChatsViewModel] 📦 Loaded \(chats.count) chats from cache")
+        }
+    }
 
     func loadChats() async {
-        isLoading = true
+        // Only show loading if we don't have cached data
+        if Self.cachedChats.isEmpty {
+            isLoading = true
+        }
         defer { isLoading = false }
 
         do {
-            chats = try await backend.listChats()
+            let freshChats = try await backend.listChats()
+
+            // Update both the published property and cache
+            chats = freshChats
+            Self.cachedChats = freshChats
+            Self.lastFetchTime = Date()
+
+            print("[ChatsViewModel] ✅ Loaded \(freshChats.count) chats from backend")
         } catch {
             errorMessage = error.localizedDescription
             print("[ChatsViewModel] Error loading chats: \(error)")
+
+            // Keep showing cached data if backend fails
+            if !Self.cachedChats.isEmpty {
+                print("[ChatsViewModel] 🔄 Using cached data due to error")
+            }
         }
     }
 }

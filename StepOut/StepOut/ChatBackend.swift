@@ -121,7 +121,8 @@ class ChatBackend: ObservableObject {
                         senderPhotoURL: senderPhotoURL,
                         text: text,
                         createdAt: createdAt,
-                        type: type == "system" ? .system : .text
+                        type: type == "system" ? .system : .text,
+                        sendState: .sent  // Messages from Firestore are confirmed
                     )
 
                     messages.append(message)
@@ -211,7 +212,7 @@ enum EventStatus {
     }
 }
 
-struct ChatMessage: Identifiable {
+class ChatMessage: Identifiable, Equatable, ObservableObject {
     let id: String
     let senderId: String
     let senderName: String
@@ -219,9 +220,45 @@ struct ChatMessage: Identifiable {
     let text: String
     let createdAt: Date
     let type: MessageType
+    @Published var sendState: MessageSendState
+
+    init(id: String, senderId: String, senderName: String, senderPhotoURL: String?, text: String, createdAt: Date, type: MessageType, sendState: MessageSendState) {
+        self.id = id
+        self.senderId = senderId
+        self.senderName = senderName
+        self.senderPhotoURL = senderPhotoURL
+        self.text = text
+        self.createdAt = createdAt
+        self.type = type
+        self.sendState = sendState
+    }
+
+    static func == (lhs: ChatMessage, rhs: ChatMessage) -> Bool {
+        lhs.id == rhs.id
+    }
 
     enum MessageType {
         case text
         case system
+    }
+
+    enum MessageSendState {
+        case sending  // Optimistic - not yet confirmed by backend
+        case sent     // Confirmed by backend
+        case failed   // Failed to send
+    }
+
+    // Create a temporary optimistic message
+    static func optimistic(senderId: String, senderName: String, senderPhotoURL: String?, text: String) -> ChatMessage {
+        ChatMessage(
+            id: "temp-\(UUID().uuidString)",
+            senderId: senderId,
+            senderName: senderName,
+            senderPhotoURL: senderPhotoURL,
+            text: text,
+            createdAt: Date(),
+            type: .text,
+            sendState: .sending
+        )
     }
 }

@@ -107,10 +107,12 @@ struct ContentView: View {
                 DispatchQueue.main.async {
                     currentSessionUID = session.firebaseUID
                     createViewModel(with: session)
+                    DataPreloader.shared.preloadData(for: session)
                 }
             } else {
                 currentSessionUID = session.firebaseUID
                 createViewModel(with: session)
+                DataPreloader.shared.preloadData(for: session)
             }
         }
     }
@@ -272,6 +274,11 @@ private struct MainAppContentView: View {
             RSVPArrivalSheet(feedEvent: feedEvent) { arrival in
                 viewModel.updateAttendance(for: feedEvent, going: true, arrivalTime: arrival)
                 pendingRSVP = nil
+
+                // Refresh chat list after RSVP so new chat appears automatically
+                Task {
+                    await refreshChatsAfterRSVP()
+                }
             } onCancel: {
                 pendingRSVP = nil
             }
@@ -648,6 +655,18 @@ private struct MainAppContentView: View {
                 }
             }
         )
+    }
+
+    @MainActor
+    private func refreshChatsAfterRSVP() async {
+        print("[MainAppContent] 🔄 Refreshing chats after RSVP...")
+        // Invalidate cache to force fresh fetch
+        ChatsViewModel.cachedChats = []
+
+        // Preload fresh chats in background
+        let viewModel = ChatsViewModel()
+        await viewModel.loadChats()
+        print("[MainAppContent] ✅ Chats refreshed - new chat should appear")
     }
 }
 
@@ -3267,3 +3286,48 @@ private struct FilterSheet: View {
     }
 }
 
+
+// MARK: - Data Preloader
+@MainActor
+class DataPreloader {
+    static let shared = DataPreloader()
+
+    private var hasPreloaded = false
+    private var currentPreloadUID: String?
+
+    private init() {}
+
+    func preloadData(for session: UserSession) {
+        // Only preload once per session
+        guard let uid = session.firebaseUID else { return }
+
+        if hasPreloaded && currentPreloadUID == uid {
+            print("[DataPreloader] ⏭️  Already preloaded for \(uid)")
+            return
+        }
+
+        print("[DataPreloader] 🚀 Starting background preload for \(uid)")
+        hasPreloaded = true
+        currentPreloadUID = uid
+
+        // Preload in background without blocking UI
+        Task(priority: .utility) {
+            await self.preloadChats()
+            await self.preloadProfile(uid: uid)
+        }
+    }
+
+    private func preloadChats() async {
+        print("[DataPreloader] 📦 Preloading chats...")
+        let viewModel = ChatsViewModel()
+        await viewModel.loadChats()
+        print("[DataPreloader] ✅ Chats preloaded and cached")
+    }
+
+    private func preloadProfile(uid: String) async {
+        print("[DataPreloader] 📦 Preloading profile...")
+        let viewModel = ProfileViewModel(firebaseUID: uid)
+        await viewModel.loadProfile()
+        print("[DataPreloader] ✅ Profile preloaded and cached")
+    }
+}
